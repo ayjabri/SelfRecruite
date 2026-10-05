@@ -38,6 +38,8 @@ def normalize(payload: dict) -> NormalizedPosting:
         title=d["title"].strip(),
         location_text="; ".join(x for x in locations if x),
         description_text=html_to_text(d.get("jobDescription", "")),
+        description_html=d.get("jobDescription") or "",
+        employment_type=d.get("timeType"),
         requisition_id=d.get("jobReqId"),
         url=d.get("externalUrl"),
         posted_at=d.get("startDate"),

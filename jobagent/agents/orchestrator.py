@@ -96,7 +96,8 @@ def report_node(state: PipelineState) -> dict:
     for r in state.get("reports", []):
         lines.append(f"\n[{r['agent']}] {r['status']}" + (f" - {r['error']}" if r["error"] else ""))
         for c in r["tool_calls"]:
-            res = {k: v for k, v in c["result"].items() if k not in ("raw_ids", "failed_raw_ids")}
+            res = {k: v for k, v in c["result"].items()
+                   if k not in ("raw_ids", "failed_raw_ids") and not k.startswith("sample")}
             lines.append(f"  {c['tool']}({json.dumps(c['args'])}) -> {json.dumps(res)}")
     if state.get("review"):
         lines.append(f"\nOrchestrator review: {state['review']['summary']}")

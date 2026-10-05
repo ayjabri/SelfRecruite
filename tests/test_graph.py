@@ -14,12 +14,12 @@ def test_graph_is_generated_from_the_registry(monkeypatch):
     extra = {
         **registry.AGENTS,
         "lever_agent": AgentSpec("lever_agent", "source", "d", "p", ("fetch_greenhouse_jobs",)),
-        "dedup_agent": AgentSpec("dedup_agent", "stage", "d", "p", ("extract_posting",), order=20),
+        "dedup_agent": AgentSpec("dedup_agent", "stage", "d", "p", ("parse_posting",), order=20),
     }
     monkeypatch.setattr(registry, "AGENTS", extra)
     g = build_graph().compile().get_graph()
     edges = {(e.source, e.target) for e in g.edges}
-    assert {"greenhouse_agent", "lever_agent", "extraction_agent", "dedup_agent"} <= set(g.nodes)
+    assert {"greenhouse_agent", "lever_agent", "parse_agent", "dedup_agent"} <= set(g.nodes)
     assert ("plan", "lever_agent") in edges and ("lever_agent", "review") in edges
-    assert ("filter_agent", "extraction_agent") in edges  # the pre-filter runs before any LLM extraction
-    assert ("extraction_agent", "dedup_agent") in edges and ("dedup_agent", "report") in edges
+    assert ("filter_agent", "parse_agent") in edges  # the pre-filter runs before any LLM extraction
+    assert ("parse_agent", "dedup_agent") in edges and ("dedup_agent", "report") in edges

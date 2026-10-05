@@ -1,4 +1,6 @@
 """Greenhouse job-board tools (public API, no key)."""
+import html
+
 import httpx
 from pydantic import BaseModel, Field
 
@@ -32,6 +34,7 @@ def normalize(payload: dict) -> NormalizedPosting:
         title=payload["title"].strip(),
         location_text=(payload.get("location") or {}).get("name", "").strip(),
         description_text=html_to_text(payload.get("content", "")),
+        description_html=html.unescape(payload.get("content") or ""),
         requisition_id=clean_requisition_id(payload.get("requisition_id")),
         url=payload.get("absolute_url"),
         posted_at=payload.get("first_published"),

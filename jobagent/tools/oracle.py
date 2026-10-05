@@ -36,6 +36,8 @@ def normalize(payload: dict) -> NormalizedPosting:
         title=d["Title"].strip(),
         location_text="; ".join(x for x in [d.get("PrimaryLocation") or "", *secondary] if x),
         description_text=html_to_text(_description_html(d)),
+        description_html=_description_html(d),
+        employment_type=d.get("JobSchedule"),
         requisition_id=str(d["Id"]),
         url=payload.get("url"),
         posted_at=d.get("ExternalPostedStartDate"),

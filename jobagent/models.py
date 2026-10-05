@@ -69,7 +69,8 @@ class Job(Base):
     workplace_type: Mapped[str | None] = mapped_column(Text)
     seniority: Mapped[str | None] = mapped_column(Text)
     description_text: Mapped[str | None] = mapped_column(Text)
-    extracted: Mapped[dict] = mapped_column(JSONB)  # the full JobExtract
+    parsed: Mapped[dict | None] = mapped_column(JSONB)     # ParsedJob: what code read, no LLM
+    extracted: Mapped[dict | None] = mapped_column(JSONB)  # JobExtract: LLM enrichment, on demand
     comp_min: Mapped[Decimal | None] = mapped_column(Numeric)
     comp_max: Mapped[Decimal | None] = mapped_column(Numeric)
     comp_period: Mapped[str | None] = mapped_column(Text)
@@ -79,8 +80,8 @@ class Job(Base):
         TIMESTAMP(timezone=True), server_default=func.now()
     )
     source_posted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    # extracted -> deduped -> scored -> queued_tailor -> tailored | skipped | failed
-    status: Mapped[str] = mapped_column(Text, server_default="extracted")
+    # parsed -> deduped -> prescored -> scored -> queued_tailor -> tailored | skipped | failed
+    status: Mapped[str] = mapped_column(Text, server_default="parsed")
     match_score: Mapped[int | None] = mapped_column(SmallInteger)  # 0-100
     match_explanation: Mapped[str | None] = mapped_column(Text)
     match_details: Mapped[dict | None] = mapped_column(JSONB)

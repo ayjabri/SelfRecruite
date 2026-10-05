@@ -12,6 +12,7 @@ from jobagent.agents.state import AgentReport
 from jobagent.db import session
 from jobagent.llm import get_chat_model
 from jobagent.models import Run
+from jobagent.tools import TOOLS
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +56,16 @@ def make_agent_node(spec: AgentSpec):
         log.info("%s started: %s", spec.name, task.splitlines()[0][:150])
         report = AgentReport(agent=spec.name, task=task, status="ok", summary="", tool_calls=[], error=None)
         try:
+            if spec.direct:
+                tool = TOOLS[spec.tools[0]]
+                result = tool.call()
+                report["tool_calls"] = [{"tool": tool.name, "args": {}, "result": result.model_dump(mode="json")}]
+                report["summary"] = "Ran without an LLM."
+                if getattr(result, "error", None):
+                    report["status"], report["error"] = "error", result.error
+                _log_run(spec, started, report)
+                log.info("%s finished: %s", spec.name, report["status"])
+                return {"reports": [report]}
             agent = create_agent(
                 model=get_chat_model(), tools=langchain_tools(list(spec.tools)), system_prompt=spec.prompt,
             )

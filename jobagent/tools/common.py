@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from jobagent.db import session
-from jobagent.models import RawPosting
+from jobagent.models import Company, RawPosting
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +37,8 @@ class NormalizedPosting(BaseModel):
     title: str
     location_text: str = ""
     description_text: str = ""
+    description_html: str = ""           # unescaped HTML, for section and bullet parsing
+    employment_type: str | None = None   # as the source states it, e.g. "Full time"
     requisition_id: str | None = None
     url: str | None = None
     posted_at: datetime | None = None
@@ -103,3 +105,25 @@ def store_raw_postings(source: str, target: str, items: list[RawItem]) -> FetchR
     result.raw_ids = ids[:MAX_IDS_RETURNED]
     log.info("%s %s: stored %d new postings", source, target, result.inserted)
     return result
+
+
+_COMPANY_SUFFIX = re.compile(r"[,.]?\s+(inc|llc|ltd|corp|corporation|co|gmbh|plc)\.?$", re.I)
+
+
+def norm_company(name: str) -> str:
+    return _COMPANY_SUFFIX.sub("", name.strip()).lower()
+
+
+def norm_title(title: str) -> str:
+    return re.sub(r"\s+", " ", title.lower()).strip()
+
+
+def get_company(s, name: str, ats: str, slug: str | None) -> Company:
+    """Find or create the company row inside the caller's session."""
+    n = norm_company(name)
+    c = s.scalar(select(Company).where(Company.name_norm == n))
+    if not c:
+        c = Company(name=name, name_norm=n, ats=ats, ats_slug=slug)
+        s.add(c)
+        s.flush()
+    return c

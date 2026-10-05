@@ -16,7 +16,7 @@ def test_execute_streams_progress_and_returns_final_state(monkeypatch, caplog):
     with caplog.at_level(logging.INFO, logger="jobagent"):
         state = graph_mod.execute(g, "sample", {"configurable": {"thread_id": "t"}})
     ran = [r["agent"] for r in state["reports"]]
-    assert sorted(ran) == ["extraction_agent", "filter_agent", "greenhouse_agent", "oracle_agent"]  # workday not dispatched
+    assert sorted(ran) == ["filter_agent", "greenhouse_agent", "oracle_agent", "parse_agent"]  # workday not dispatched
     assert "greenhouse_agent" in state["final_report"]
     assert "orchestrator -> oracle_agent: pull jpmc" in caplog.text
     assert "orchestrator review: fine (proceeding)" in caplog.text

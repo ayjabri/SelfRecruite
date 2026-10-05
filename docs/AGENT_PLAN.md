@@ -112,18 +112,103 @@ tests/
 
 ## Build order
 
-| Phase | Deliverable | Proof it works |
+| Phase | Deliverable | Status |
 | --- | --- | --- |
-| 0. Foundations | `pyproject.toml`, `config.py`, `environment.yml`, `git init`, pytest | `pip install -e .`; tests run |
-| 1. Tools layer | Registry, `fetch_greenhouse_jobs`, normalisation, extraction split into tools, CLI | Same 10 Stripe rows via CLI, no LLM orchestration involved |
-| 2. Graph skeleton | State, agent registry, orchestrator, `greenhouse_agent`, `extraction_agent`, checkpointer, `runs` logging | One command runs orchestrator → Greenhouse → extraction end to end |
-| 3. Second and third source | `workday_agent`, then `oracle_agent` | Each added with one tools file + one registry entry; graph code untouched |
-| 4. Exposure | MCP server, optional FastAPI | Tools callable from an MCP client |
-| 5. Remaining stages | Dedup, scoring, tailoring agents (BUILD_PLAN steps 4–6), JobSpy agent | Per BUILD_PLAN |
+| 0. Foundations | `pyproject.toml`, config, `environment.yml`, git, pytest | Done |
+| 1. Tools layer | Registry, Greenhouse fetch, normalisation, extraction tools, CLI | Done |
+| 2. Graph skeleton | State, agent registry, orchestrator, checkpointer, `runs` logging | Done |
+| 3. More sources | `workday_agent`, `oracle_agent` | Done |
+| 3b. Pre-filter | `config/filters.yaml`, `filter_agent` | Done |
+| 4. Parse, don't extract | Revision 2 below, part A | Done |
+| 5. Embeddings and golden source | Revision 2, part B | Next |
+| 6. De-duplication | BUILD_PLAN step 4, on parsed jobs | |
+| 7. Fast score | Revision 2, part C | |
+| 8. LLM judgement for the top slice | Revision 2, part D | |
+| 9. Tailoring | BUILD_PLAN step 6 | |
+| Any time | MCP server; concurrent LLM calls; JobSpy agent | |
+
+## Revision 2 (Oct 5, 2026) — parse first, LLM last
+
+Two changes, one idea: the LLM is the slowest and least repeatable part, so it moves to the end of
+the funnel and only sees jobs that have already ranked well.
+
+```
+fetch → pre-filter → PARSE → de-dup → FAST SCORE ──top slice──▶ ENRICH + JUDGE → tailor
+ code      code       code     code      code/ML                      LLM          LLM
+```
+
+Today the LLM runs at "parse" for every kept posting (about 10 s each). After this revision it runs
+only for jobs above the fast-score cutoff, expected to be tens per day.
+
+### A. Parse stage (replaces LLM extraction)
+
+Every posting that passes the pre-filter becomes a `jobs` row immediately, built by code.
+
+| Field | How |
+| --- | --- |
+| Title, company, URL, requisition ID, posted date | Copied from the source (already in `NormalizedPosting`) |
+| Employment type, job family | Copied where the source has it (Workday `timeType`, Oracle `JobSchedule`/`JobFamily`, Greenhouse `departments`) |
+| Locations | Split the location text into city / state / country using the existing `geo` module |
+| Pay range | ATS field if present, else a dollar-range pattern in the text; the matched sentence is stored |
+| Minimum years | Pattern (`5+ years`), smallest value found in a requirements section |
+| Workplace type, clearance, visa | Keyword checks |
+| Seniority | Existing `derive_seniority` |
+| Sections and bullets | Walk the description HTML: each heading starts a section, each `<li>` is a bullet. Sections are labelled `responsibilities`, `required`, `preferred` or `other` by heading keywords ("what you'll do", "requirements", "nice to have") |
+
+- Stored in a new `jobs.parsed` JSONB column. `jobs.extracted` becomes nullable and is filled only by enrichment.
+- New status `parsed` at the start of the flow: `parsed → deduped → prescored → scored → queued_tailor → tailored | skipped | failed`.
+- When a posting has no recognisable sections, all bullets are treated as requirements and the job is flagged `sections: unlabelled`, so the fast score still works and the gap is measurable.
+- **Check before switching:** run the parser over the jobs already extracted by the LLM and report agreement per field (pay, years, workplace, seniority). The LLM path is removed from this stage only if the parser holds up.
+
+Tools: `parse_posting`, `parse_pending_postings`. Agent: `parse_agent` replaces `extraction_agent`.
+
+### B. Embeddings and the golden source
+
+- `embed_jobs`: title plus requirement bullets through `nomic-embed-text` into `jobs.embedding` (used by de-dup and the fast score).
+- `index_golden_source`: split the golden-source resume by heading, embed each section, store in a new `golden_chunks` table keyed by the file's SHA. Re-indexing happens only when the file changes.
+
+### C. Fast score (no LLM)
+
+One number per job, computed for every parsed job in seconds.
+
+```
+fit = 100 × (0.45·M + 0.20·P + 0.15·F + 0.10·S + 0.10·D)      hard gates cap it at 30
+```
+
+Same weights and gates as BUILD_PLAN step 5, so the two scores are comparable. What changes is how M and P are measured:
+
+- **M, P:** for each required (or preferred) bullet, the best cosine similarity against the golden-source chunks, mapped to 0–1 and averaged. If a posting has no preferred section, P takes M's value.
+- **F, S, D and the gates:** rules from `config/targets.yaml` (title families, seniority range, domains, allowed metros, pay floor, clearance, PhD). No model involved.
+
+Stored in new columns `fit_score` and `fit_details` (per-bullet similarity and the chunk it matched), leaving `match_score` for the LLM's judgement.
+
+**Limits, stated plainly.** Similarity measures topical closeness, not qualification. It will rank "treasury sales" near "treasury analyst". That is acceptable for a first cut whose job is to decide what the LLM looks at, and not acceptable as the final score.
+
+**Upgrades, in order, only if the labelled set shows the ranking is poor:**
+1. A cross-encoder reranker to score bullet/chunk pairs (more accurate; adds a PyTorch dependency).
+2. A trained classifier over these signals once there are a few hundred apply/skip decisions. Thirty labels are enough to tune weights, not to train.
+
+### D. LLM judgement for the top slice
+
+For jobs with `fit_score` above a cutoff (start loose, e.g. 50, capped per day):
+
+- `enrich_job`: the existing LLM extraction, now on demand, filling `jobs.extracted`.
+- `score_job`: BUILD_PLAN step 5 as written (per-requirement class, percentage, evidence), producing `match_score`, `match_explanation` and `match_details` for tailoring.
+
+Both belong to `scoring_agent`. The tailoring threshold (70) applies to `match_score`, as before.
+
+### Calibration
+
+The 30 "would apply / would skip" labels from BUILD_PLAN serve twice: to set the fast-score cutoff so that no "would apply" job falls below it, and to tune the weights.
+
+### What this needs from you
+
+- The golden-source resume file, placed in the repo (ignored by git) or its path.
+- `config/targets.yaml` values: target title families, acceptable seniority, allowed metros for onsite roles, and the pay floor.
 
 ## Risks and open decisions
 
 - **Local models and tool calling.** `qwen3.5:4b` followed a simple seniority rule only about half the time in extraction. An orchestrator that picks agents and reacts to failures needs more reliability than that. Recommendation: `qwen3.6:27b` for the orchestrator, `qwen3.5:4b` for source agents, and measure.
 - **Where the LLM actually decides.** For a routine daily pull the "decision" is small (which boards, what to do on failure). The design keeps that honest: the agent chooses and sequences tools, but volume, storage and arithmetic stay in code. This preserves BUILD_PLAN's "deterministic spine" rule and keeps runs cheap and repeatable.
 - **Unattended runs.** Every run must end even if a model loops: recursion limit on each agent, per-tool timeouts, and a deterministic fallback path (CLI tools in sequence) for cron.
-- **Workday and Oracle** need tenant/site identifiers per company, so the company registry (`companies.yaml`) is a prerequisite for Phase 3.
+- **Agents around pure-code stages.** `filter_agent`, and after this revision `parse_agent` and the fast-score stage, each wrap a single tool with fixed arguments. Running an LLM to call one tool adds 10–20 seconds and a failure point with no decision to make. Proposal: an `AgentSpec` option that runs such a stage's tool directly, keeping LLM agents for the stages with real choices (orchestrator, sources, scoring, tailoring). Open decision.

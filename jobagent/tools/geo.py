@@ -5,7 +5,7 @@ place missing from these lists costs an unnecessary extraction, not a hidden job
 """
 import re
 
-_STATES = {
+STATES = {
     "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
     "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "FL": "Florida", "GA": "Georgia",
     "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas",
@@ -26,7 +26,7 @@ _US_PLACES = [
     "Tampa", "Orlando", "Charlotte", "Raleigh", "Nashville", "Philadelphia", "Pittsburgh", "Detroit",
     "Minneapolis", "Salt Lake City", "Las Vegas", "Columbus", "Cleveland", "Cincinnati", "St. Louis",
     "Kansas City", "Jersey City", "Wilmington", "Plano", "Brooklyn", "Baltimore",
-    *(n for n in _STATES.values() if n != "Georgia"),  # Georgia is also a country; ", GA" still counts
+    *(n for n in STATES.values() if n != "Georgia"),  # Georgia is also a country; ", GA" still counts
 ]
 _NON_US_PLACES = [
     # regions and codes
@@ -62,7 +62,7 @@ def phrase_regex(phrases) -> re.Pattern | None:
 
 
 # state codes are case-sensitive and only trusted in "City, CA" or "US, CA, City" positions
-_STATE_CODE = re.compile(rf"(?:,\s*|-\s*|^)(?:{'|'.join(_STATES)})(?![A-Za-z])")
+_STATE_CODE = re.compile(rf"(?:,\s*|-\s*|^)(?:{'|'.join(STATES)})(?![A-Za-z])")
 _SPLIT = re.compile(r"\s*(?:;|\||/|\bor\b|\bOR\b)\s*")
 
 

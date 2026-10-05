@@ -5,3 +5,5 @@ __pycache__/
 backups/
 *.egg-info/
 .pytest_cache/
+# golden-source resume (personal)
+/doc

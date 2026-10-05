@@ -15,4 +15,5 @@ register_agent(AgentSpec(
         "each filter reason. Use only numbers returned by the tool."
     ),
     tools=("filter_pending_postings",),
+    direct=True,
 ))
