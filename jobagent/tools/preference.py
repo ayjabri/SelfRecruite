@@ -126,7 +126,8 @@ def train_preference_model(args: TrainInput) -> TrainResult:
         rows = s.execute(
             select(Job.title, Company.name, Job.seniority, Job.fit_details, Job.embedding, Job.user_label)
             .join(Company, Company.id == Job.company_id)
-            .where(Job.user_label.is_not(None), Job.fit_details.is_not(None), Job.embedding.is_not(None))
+            .where(Job.user_label.is_not(None), Job.fit_details.is_not(None), Job.embedding.is_not(None),
+                   Job.duplicate_of.is_(None))
         ).all()
     labels = [int(r.user_label == "interested") for r in rows]
     out.interested, out.not_interested = sum(labels), len(labels) - sum(labels)

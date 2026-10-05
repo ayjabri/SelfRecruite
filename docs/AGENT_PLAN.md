@@ -120,10 +120,10 @@ tests/
 | 3. More sources | `workday_agent`, `oracle_agent` | Done |
 | 3b. Pre-filter | `config/filters.yaml`, `filter_agent` | Done |
 | 4. Parse, don't extract | Revision 2 below, part A | Done |
-| 5. Embeddings and golden source | Revision 2, part B | Next |
-| 6. De-duplication | BUILD_PLAN step 4, on parsed jobs | |
-| 7. Fast score | Revision 2, part C | |
-| 8. LLM judgement for the top slice | Revision 2, part D | |
+| 5. Embeddings and golden source | Revision 2, part B | Done |
+| 6. De-duplication | BUILD_PLAN step 4, on parsed jobs | Done |
+| 7. Fast score | Revision 2, part C | Done, plus a preference model trained on marks and a review UI |
+| 8. LLM judgement for the top slice | Revision 2, part D | Next |
 | 9. Tailoring | BUILD_PLAN step 6 | |
 | Any time | MCP server; concurrent LLM calls; JobSpy agent | |
 

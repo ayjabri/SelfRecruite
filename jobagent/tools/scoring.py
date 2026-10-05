@@ -129,7 +129,8 @@ def score_jobs_fast(args: ScoreJobsInput) -> ScoreJobsResult:
         sha = chunks[0].source_sha
         query = (
             select(Job.id, Job.title, Job.parsed, Job.comp_max, Job.embedding, Job.fit_details, Company.name)
-            .join(Company, Company.id == Job.company_id).where(Job.parsed.is_not(None)).order_by(Job.id)
+            .join(Company, Company.id == Job.company_id)
+            .where(Job.parsed.is_not(None), Job.duplicate_of.is_(None)).order_by(Job.id)
         )
         if args.scope == "in_scope":
             query = query.where(in_scope())
@@ -230,7 +231,8 @@ def score_jobs_fast(args: ScoreJobsInput) -> ScoreJobsResult:
             job = s.get(Job, job_id)
             job.fit_score, job.fit_details = score, details
     with session() as s:
-        remaining = select(func.count()).select_from(Job).where(Job.fit_score.is_(None), Job.parsed.is_not(None))
+        remaining = select(func.count()).select_from(Job).where(
+            Job.fit_score.is_(None), Job.parsed.is_not(None), Job.duplicate_of.is_(None))
         if args.scope == "in_scope":
             remaining = remaining.where(in_scope())
         out.remaining = s.scalar(remaining)

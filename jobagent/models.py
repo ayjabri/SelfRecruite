@@ -88,6 +88,8 @@ class Job(Base):
     match_model: Mapped[str | None] = mapped_column(Text)
     golden_source_sha: Mapped[str | None] = mapped_column(Text)
     scored_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    # set when this row was merged into another job (the canonical record); such rows are hidden
+    duplicate_of: Mapped[int | None] = mapped_column(ForeignKey("jobs.id"), index=True)
     fit_score: Mapped[int | None] = mapped_column(SmallInteger, index=True)  # fast score, no LLM, 0-100
     fit_details: Mapped[dict | None] = mapped_column(JSONB)       # components, per-bullet matches, gates
     user_label: Mapped[str | None] = mapped_column(Text, index=True)  # interested | not_interested
@@ -135,3 +137,17 @@ class GoldenChunk(Base):
     # True for sections handed to scoring and tailoring in full instead of being retrieved
     always_include: Mapped[bool] = mapped_column(Boolean, server_default="false")
     embedding = mapped_column(Vector(768))
+
+
+class PossibleDuplicate(Base):
+    """A same-company pair that looked alike but not enough to merge automatically."""
+    __tablename__ = "possible_duplicates"
+    __table_args__ = (UniqueConstraint("job_a", "job_b"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    job_a: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"))
+    job_b: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"))
+    similarity: Mapped[float] = mapped_column(Numeric(5, 3))
+    title_ratio: Mapped[int] = mapped_column(SmallInteger)
+    status: Mapped[str] = mapped_column(Text, server_default="pending")  # pending | same | different
+    decided_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
