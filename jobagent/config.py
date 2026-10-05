@@ -18,6 +18,7 @@ class Settings:
     ollama_base_url: str
     ollama_num_ctx: int
     companies_file: Path
+    filters_file: Path
 
     @property
     def psycopg_url(self) -> str:
@@ -33,4 +34,5 @@ def get_settings() -> Settings:
         ollama_base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
         ollama_num_ctx=int(os.environ.get("OLLAMA_NUM_CTX", "16384")),
         companies_file=Path(os.environ.get("COMPANIES_FILE", ROOT / "config" / "companies.yaml")),
+        filters_file=Path(os.environ.get("FILTERS_FILE", ROOT / "config" / "filters.yaml")),
     )

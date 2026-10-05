@@ -21,4 +21,5 @@ def test_graph_is_generated_from_the_registry(monkeypatch):
     edges = {(e.source, e.target) for e in g.edges}
     assert {"greenhouse_agent", "lever_agent", "extraction_agent", "dedup_agent"} <= set(g.nodes)
     assert ("plan", "lever_agent") in edges and ("lever_agent", "review") in edges
+    assert ("filter_agent", "extraction_agent") in edges  # the pre-filter runs before any LLM extraction
     assert ("extraction_agent", "dedup_agent") in edges and ("dedup_agent", "report") in edges

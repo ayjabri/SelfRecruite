@@ -1,0 +1,83 @@
+# Pre-filter: decides which stored postings are worth an LLM extraction.
+# Phrases match whole words, ignoring case. Edit freely, then run
+#   jobagent run filter_pending_postings --recheck true
+# to re-evaluate postings that have not been extracted yet.
+
+title:
+  # a posting is kept only if its title contains at least one of these...
+  include:
+    # AI product / project management
+    - product manager
+    - product management
+    - product owner
+    - product lead
+    - program manager
+    - project manager
+    # business analysis
+    - business analyst
+    - business systems analyst
+    - business analysis
+    - data analyst
+    - analytics
+    # Python and AI/ML engineering
+    - ai
+    - ml
+    - machine learning
+    - llm
+    - genai
+    - generative ai
+    - python
+    - data scientist
+    - data science
+    # Treasury / ALM
+    - treasury
+    - alm
+    - asset liability
+    - asset/liability
+    - liquidity
+    - interest rate risk
+    - irrbb
+    - balance sheet
+    - funds transfer pricing
+    # ALM quant analytics
+    - quantitative
+    - quant
+    - model risk
+    - risk analytics
+    - risk modeling
+    - risk modelling
+
+  # ...and none of these
+  exclude:
+    - intern
+    - interns
+    - internship
+    - internships
+    - co-op
+    - apprentice
+    - phd
+    - ph.d
+    - postdoc
+    - fellow
+    - fellows
+    - fellowship
+    - recruiter
+    - recruiting
+    - sourcer
+    - account executive
+    - sales
+    - teller
+    - attorney
+    - counsel
+    - paralegal
+    # PhD-gated quant research
+    - quantitative research
+    - quantitative researcher
+    - quant research
+    - quant researcher
+    - research scientist
+
+location:
+  us_only: true      # drop postings clearly outside the US; unclear locations are kept
+  extra_us: []       # extra place names to treat as US, e.g. [Plano, Jersey City]
+  extra_non_us: []   # extra place names to treat as non-US

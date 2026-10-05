@@ -40,6 +40,9 @@ class RawPosting(Base):
     fetched_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
+    # pre-filter decision: NULL = not checked yet, 'kept' = extract it, 'filtered' = skip it
+    filter_status: Mapped[str | None] = mapped_column(Text, index=True)
+    filter_reason: Mapped[str | None] = mapped_column(Text)
 
 
 class Job(Base):

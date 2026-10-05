@@ -1,12 +1,14 @@
 # Target employers per source. Each source agent reads its own section;
 # the fields are the arguments of that source's fetch tool.
 greenhouse:
-  - stripe
-  - databricks
   - anthropic
 
 workday:   # site = tenant:wdN:site, from https://<tenant>.<wdN>.myworkdayjobs.com/<site>
   - {company: NVIDIA, site: "nvidia:wd5:NVIDIAExternalCareerSite"}
+  - {company: Citi, site: "citi:wd5:2"}
 
 oracle:    # host and site_number from https://<host>/hcmUI/CandidateExperience/en/sites/<site_number>
   - {company: JPMorgan Chase, host: jpmc.fa.oraclecloud.com, site_number: CX_1001}
+  - {company: BNY, host: eofe.fa.us2.oraclecloud.com, site_number: BNY-Careers}
+  - {company: Goldman Sachs, host: hdpc.fa.us2.oraclecloud.com, site_number: LateralHiring}
+  - {company: Citizens Bank, host: hcgn.fa.us2.oraclecloud.com, site_number: CX_1}

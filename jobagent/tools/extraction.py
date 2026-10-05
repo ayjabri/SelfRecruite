@@ -5,12 +5,13 @@ import time
 from typing import Literal
 
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from jobagent.db import session
 from jobagent.extract.core import llm_extract
 from jobagent.models import Company, Job, JobSource, RawPosting
 from jobagent.tools.common import MAX_IDS_RETURNED, NORMALIZERS
+from jobagent.tools.filtering import KEPT, FilterInput, filter_pending_postings
 from jobagent.tools.registry import tool_spec
 
 log = logging.getLogger(__name__)
@@ -27,8 +28,12 @@ def norm_title(title: str) -> str:
 
 
 def _pending_ids(s, limit: int | None) -> list[int]:
+    """Postings the pre-filter kept that have no job yet."""
     linked = select(JobSource.raw_id).where(JobSource.raw_id == RawPosting.id).exists()
-    return list(s.scalars(select(RawPosting.id).where(~linked).order_by(RawPosting.id).limit(limit)))
+    return list(s.scalars(
+        select(RawPosting.id).where(~linked, RawPosting.filter_status == KEPT)
+        .order_by(RawPosting.id).limit(limit)
+    ))
 
 
 def _get_company(s, name: str, ats: str, slug: str | None) -> Company:
@@ -46,18 +51,26 @@ class ListPendingInput(BaseModel):
 
 
 class PendingResult(BaseModel):
-    pending: int
+    pending: int                 # kept by the pre-filter, waiting for extraction
+    not_yet_filtered: int = 0    # stored but not checked by the pre-filter yet
     raw_ids: list[int]
 
 
 @tool_spec(
     name="list_pending_extractions",
-    description="Count the raw postings that have not been extracted into a job yet, and list their IDs.",
+    description=(
+        "Count the postings that passed the pre-filter and have not been extracted into a job yet, "
+        "and list their IDs."
+    ),
 )
 def list_pending_extractions(args: ListPendingInput) -> PendingResult:
     with session() as s:
         ids = _pending_ids(s, None)
-    return PendingResult(pending=len(ids), raw_ids=ids[: args.limit or MAX_IDS_RETURNED])
+        linked = select(JobSource.raw_id).where(JobSource.raw_id == RawPosting.id).exists()
+        unchecked = s.scalar(
+            select(func.count()).select_from(RawPosting).where(RawPosting.filter_status.is_(None), ~linked)
+        )
+    return PendingResult(pending=len(ids), not_yet_filtered=unchecked, raw_ids=ids[: args.limit or MAX_IDS_RETURNED])
 
 
 class ExtractPostingInput(BaseModel):
@@ -159,11 +172,12 @@ class ExtractBatchResult(BaseModel):
 @tool_spec(
     name="extract_pending_postings",
     description=(
-        "Extract every raw posting that has no job yet (optionally up to a limit). "
+        "Extract every posting that passed the pre-filter and has no job yet (optionally up to a limit). "
         "Returns counts per outcome, how many are still pending, and the IDs that failed."
     ),
 )
 def extract_pending_postings(args: ExtractPendingInput) -> ExtractBatchResult:
+    filter_pending_postings(FilterInput())  # anything not checked yet is filtered first; no LLM, cheap
     with session() as s:
         ids = _pending_ids(s, args.limit)
     out = ExtractBatchResult()
