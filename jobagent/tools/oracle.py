@@ -101,6 +101,8 @@ def fetch_oracle_jobs(args: FetchOracleInput) -> FetchResult:
                     break
     except httpx.HTTPError as e:
         result.error = describe_error(e)  # keep what was fetched before the failure
+    except (KeyError, TypeError, ValueError) as e:  # unexpected response shape
+        result.error = f"unexpected response: {type(e).__name__}: {e}"
     stored = store_raw_postings(SOURCE, target, items)
     result.fetched = scanned
     result.inserted = stored.inserted

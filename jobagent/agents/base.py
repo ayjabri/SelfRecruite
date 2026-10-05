@@ -1,5 +1,6 @@
 """Turns an AgentSpec into a graph node: an LLM tool-calling loop over the agent's own tools."""
 import json
+import logging
 from datetime import date, datetime, timezone
 
 from langchain.agents import create_agent
@@ -11,6 +12,8 @@ from jobagent.agents.state import AgentReport
 from jobagent.db import session
 from jobagent.llm import get_chat_model
 from jobagent.models import Run
+
+log = logging.getLogger(__name__)
 
 MAX_STEPS = 25  # hard stop so an unattended run always ends
 
@@ -49,6 +52,7 @@ def make_agent_node(spec: AgentSpec):
         if spec.kind == "stage" and state.get("request"):
             task = f"{task}\n\nRun request, for context: {state['request']}"
         started = datetime.now(timezone.utc)
+        log.info("%s started: %s", spec.name, task.splitlines()[0][:150])
         report = AgentReport(agent=spec.name, task=task, status="ok", summary="", tool_calls=[], error=None)
         try:
             agent = create_agent(
@@ -66,6 +70,8 @@ def make_agent_node(spec: AgentSpec):
         except Exception as e:  # noqa: BLE001 - one agent failing must not take the run down
             report["status"], report["error"] = "error", f"{type(e).__name__}: {e}"[:500]
         _log_run(spec, started, report)
+        log.info("%s finished: %s, %d tool calls%s", spec.name, report["status"], len(report["tool_calls"]),
+                 f" - {report['error']}" if report["error"] else "")
         return {"reports": [report]}
 
     node.__name__ = spec.name

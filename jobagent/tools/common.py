@@ -1,5 +1,6 @@
 """Shapes and helpers shared by every source tool."""
 import hashlib
+import logging
 import html
 import re
 from collections.abc import Callable
@@ -12,6 +13,8 @@ from sqlalchemy.dialects.postgresql import insert
 
 from jobagent.db import session
 from jobagent.models import RawPosting
+
+log = logging.getLogger(__name__)
 
 MAX_IDS_RETURNED = 50  # summaries stay small enough for an LLM context
 
@@ -85,6 +88,7 @@ def store_raw_postings(source: str, target: str, items: list[RawItem]) -> FetchR
     """Insert untouched payloads; the (source, external_id, content_hash) key makes reruns harmless."""
     result = FetchResult(source=source, target=target, fetched=len(items))
     if not items:
+        log.info("%s %s: nothing new to store", source, target)
         return result
     rows = [dict(source=source, target=target, **i.model_dump()) for i in items]
     with session() as s, s.begin():
@@ -97,4 +101,5 @@ def store_raw_postings(source: str, target: str, items: list[RawItem]) -> FetchR
     result.inserted = len(ids)
     result.already_present = len(rows) - len(ids)
     result.raw_ids = ids[:MAX_IDS_RETURNED]
+    log.info("%s %s: stored %d new postings", source, target, result.inserted)
     return result

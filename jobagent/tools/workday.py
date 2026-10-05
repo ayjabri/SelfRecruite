@@ -77,6 +77,9 @@ def fetch_workday_jobs(args: FetchWorkdayInput) -> FetchResult:
                     break
                 for listing in page:
                     scanned += 1
+                    if not listing.get("externalPath"):  # some listings come back as stubs with no link
+                        result.filtered_out += 1
+                        continue
                     ext_id = _external_id(listing)
                     if ext_id in known:
                         result.already_present += 1
@@ -97,6 +100,8 @@ def fetch_workday_jobs(args: FetchWorkdayInput) -> FetchResult:
                     break
     except httpx.HTTPError as e:
         result.error = describe_error(e)  # keep what was fetched before the failure
+    except (KeyError, TypeError, ValueError) as e:  # unexpected response shape
+        result.error = f"unexpected response: {type(e).__name__}: {e}"
     stored = store_raw_postings(SOURCE, args.site, items)
     result.fetched = scanned
     result.inserted = stored.inserted

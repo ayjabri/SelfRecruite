@@ -8,6 +8,7 @@
 """
 import argparse
 import json
+import logging
 import sys
 
 from jobagent.tools import TOOLS
@@ -28,6 +29,9 @@ def main(argv: list[str] | None = None) -> int:
     pipe.add_argument("request", nargs="?", default="Daily pull of all configured targets.")
     pipe.add_argument("--resume", metavar="THREAD", help="thread id of a run to continue")
     args = vars(parser.parse_args(argv))
+    # progress goes to stderr, so stdout stays clean JSON / the final report
+    logging.basicConfig(level=logging.WARNING, stream=sys.stderr, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
+    logging.getLogger("jobagent").setLevel(logging.INFO)
 
     if args["cmd"] == "agents":
         from jobagent.agents import AGENTS

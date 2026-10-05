@@ -1,5 +1,7 @@
 """Extraction tools: turn stored raw postings into jobs rows."""
+import logging
 import re
+import time
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -10,6 +12,8 @@ from jobagent.extract.core import llm_extract
 from jobagent.models import Company, Job, JobSource, RawPosting
 from jobagent.tools.common import MAX_IDS_RETURNED, NORMALIZERS
 from jobagent.tools.registry import tool_spec
+
+log = logging.getLogger(__name__)
 
 _SUFFIX = re.compile(r"[,.]?\s+(inc|llc|ltd|corp|corporation|co|gmbh|plc)\.?$", re.I)
 
@@ -163,9 +167,14 @@ def extract_pending_postings(args: ExtractPendingInput) -> ExtractBatchResult:
     with session() as s:
         ids = _pending_ids(s, args.limit)
     out = ExtractBatchResult()
-    for raw_id in ids:
+    started = time.monotonic()
+    for n, raw_id in enumerate(ids, 1):
+        t0 = time.monotonic()
         r = extract_posting(ExtractPostingInput(raw_id=raw_id))
         out.processed += 1
+        eta_min = (time.monotonic() - started) / n * (len(ids) - n) / 60
+        log.info("extract %d/%d %-9s %4.1fs  %s  (about %.0f min left)",
+                 n, len(ids), r.outcome, time.monotonic() - t0, (r.title or r.error or "")[:60], eta_min)
         setattr(out, r.outcome, getattr(out, r.outcome) + 1)
         if r.outcome == "failed":
             out.failed_raw_ids.append(raw_id)
