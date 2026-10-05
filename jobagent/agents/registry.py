@@ -14,8 +14,8 @@ class AgentSpec:
     order: int = 0                    # stages only
     default_task: str = ""            # stages only: what to do when the orchestrator proceeds
     config_key: str | None = None     # sources only: section of companies.yaml listing its targets
-    # True for a stage with nothing to decide: its first tool is called with default
-    # arguments, with no LLM in the loop. Set False to put an LLM agent back in charge.
+    # True for a stage with nothing to decide: each of its tools is called in order with
+    # default arguments, with no LLM in the loop. Set False to put an LLM agent back in charge.
     direct: bool = False
 
 

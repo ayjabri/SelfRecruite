@@ -1,0 +1,61 @@
+# What a good job looks like for you. Used by the fast score (no LLM).
+# After editing, run:  jobagent run score_jobs_fast --rescore true
+
+# fit = 100 x (required*M + preferred*P + title_family*F + seniority*S + domain*D)
+weights:
+  required: 0.45       # M: how well your resume covers the required bullets
+  preferred: 0.20      # P: same for the preferred bullets
+  title_family: 0.15   # F
+  seniority: 0.10      # S
+  domain: 0.10         # D
+
+# Embedding similarity between a requirement and your best-matching resume section
+# falls in a narrow band. Values at or below floor count as 0, at or above ceiling as 1.
+similarity:
+  floor: 0.55
+  ceiling: 0.80
+
+# F: the highest weight among the families whose keywords appear in the title (0 if none)
+title_families:
+  treasury_alm:
+    weight: 1.0
+    keywords: [treasury, alm, asset liability, asset/liability, liquidity, interest rate risk, irrbb, balance sheet, funds transfer pricing]
+  ai_product:
+    weight: 1.0
+    keywords: [product manager, product management, product owner, product lead, program manager, project manager]
+  ai_ml_engineering:
+    weight: 0.9
+    keywords: [ai, ml, machine learning, llm, genai, generative ai, python, data scientist, data science]
+  quant:
+    weight: 0.9
+    keywords: [quantitative, quant, model risk, risk analytics, risk modeling, risk modelling]
+  analytics:
+    weight: 0.8
+    keywords: [business analyst, business systems analyst, business analysis, data analyst, analytics]
+
+# S: how well each seniority level suits you
+seniority:
+  director: 1.0
+  lead: 1.0
+  vp_plus: 0.8
+  senior: 0.8
+  mid: 0.3
+  entry: 0.0
+  unknown: 0.5
+
+# D: 1.0 for these employers; otherwise 1/3 per distinct keyword found in the title and requirements
+domains:
+  companies: [JPMorgan Chase, Citi, BNY, Goldman Sachs, Citizens Bank, Stripe]
+  keywords: [bank, banking, treasury, fintech, financial services, capital markets, payments, balance sheet, risk management, machine learning, llm, generative ai]
+
+# Banks use "Vice President" for mid-senior staff, not executives. For these employers:
+# Managing Director -> vp_plus, Executive Director / Director / SVP -> director,
+# Vice President -> senior, Associate -> mid.
+bank_title_companies: [JPMorgan Chase, Citi, BNY, Goldman Sachs, Citizens Bank]
+
+# Hard gates: a job that trips one is capped at 30, with the reason recorded
+gates:
+  clearance_required: true   # cap jobs that need a security clearance
+  phd_required: true         # cap jobs whose requirements name a PhD
+  pay_floor: null            # e.g. 180000: cap jobs whose top of range is below this
+  allowed_states: []         # e.g. [NY, NJ, CT]: cap non-remote jobs elsewhere. Empty = no location gate

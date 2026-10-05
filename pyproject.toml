@@ -19,6 +19,11 @@ dependencies = [
     "langchain-ollama",
     "langgraph-checkpoint-postgres",
     "mcp",
+    "numpy",
+    "scikit-learn",
+    "joblib",
+    "fastapi",
+    "uvicorn",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +39,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["jobagent*"]
+
+[tool.setuptools.package-data]
+jobagent = ["web/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

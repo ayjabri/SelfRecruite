@@ -80,3 +80,10 @@ def test_unlabelled_bullets_all_count_as_requirements():
     p = NormalizedPosting(company="A", title="Analyst", description_html="<ul><li>One</li><li>Two</li></ul>")
     j = parse_posting(p)
     assert j.sections_quality == "unlabelled" and j.requirements == ["One", "Two"]
+
+
+def test_typed_bullets_and_uppercase_headings():
+    html = ("<p>Intro text.</p><p>KEY RESPONSIBILITIES</p><p>• Own delivery</p><p>• Manage budgets</p>"
+            "<p>REQUIRED QUALIFICATIONS</p><p>- 10+ years in banking</p><p>Closing paragraph.</p>")
+    s = {x.label: x.bullets for x in parse_sections(html)}
+    assert s == {"responsibilities": ["Own delivery", "Manage budgets"], "required": ["10+ years in banking"]}

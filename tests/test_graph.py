@@ -19,7 +19,9 @@ def test_graph_is_generated_from_the_registry(monkeypatch):
     monkeypatch.setattr(registry, "AGENTS", extra)
     g = build_graph().compile().get_graph()
     edges = {(e.source, e.target) for e in g.edges}
-    assert {"greenhouse_agent", "lever_agent", "parse_agent", "dedup_agent"} <= set(g.nodes)
+    assert {"greenhouse_agent", "lever_agent", "parse_agent", "embedding_agent", "dedup_agent"} <= set(g.nodes)
     assert ("plan", "lever_agent") in edges and ("lever_agent", "review") in edges
-    assert ("filter_agent", "parse_agent") in edges  # the pre-filter runs before any LLM extraction
-    assert ("parse_agent", "dedup_agent") in edges and ("dedup_agent", "report") in edges
+    stage_chain = [("filter_agent", "parse_agent"), ("parse_agent", "embedding_agent"),
+                   ("embedding_agent", "dedup_agent"), ("dedup_agent", "fast_score_agent"),
+                   ("fast_score_agent", "report")]
+    assert all(e in edges for e in stage_chain)  # stages run in their registered order

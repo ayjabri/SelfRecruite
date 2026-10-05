@@ -19,6 +19,9 @@ class Settings:
     ollama_num_ctx: int
     companies_file: Path
     filters_file: Path
+    golden_source_file: Path
+    targets_file: Path
+    embed_model: str
 
     @property
     def psycopg_url(self) -> str:
@@ -35,4 +38,16 @@ def get_settings() -> Settings:
         ollama_num_ctx=int(os.environ.get("OLLAMA_NUM_CTX", "16384")),
         companies_file=Path(os.environ.get("COMPANIES_FILE", ROOT / "config" / "companies.yaml")),
         filters_file=Path(os.environ.get("FILTERS_FILE", ROOT / "config" / "filters.yaml")),
+        golden_source_file=Path(os.environ.get(
+            "GOLDEN_SOURCE_FILE", ROOT / "docs" / "Ethan_jabri_golden_source.md")),
+        targets_file=Path(os.environ.get("TARGETS_FILE", ROOT / "config" / "targets.yaml")),
+        embed_model=os.environ.get("EMBED_MODEL", "nomic-embed-text"),
     )
+
+
+@lru_cache
+def load_targets() -> dict:
+    """config/targets.yaml as a dict (empty if the file is missing)."""
+    import yaml
+    path = get_settings().targets_file
+    return (yaml.safe_load(path.read_text()) if path.exists() else None) or {}

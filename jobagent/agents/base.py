@@ -57,12 +57,13 @@ def make_agent_node(spec: AgentSpec):
         report = AgentReport(agent=spec.name, task=task, status="ok", summary="", tool_calls=[], error=None)
         try:
             if spec.direct:
-                tool = TOOLS[spec.tools[0]]
-                result = tool.call()
-                report["tool_calls"] = [{"tool": tool.name, "args": {}, "result": result.model_dump(mode="json")}]
+                for name in spec.tools:
+                    result = TOOLS[name].call()
+                    report["tool_calls"].append({"tool": name, "args": {}, "result": result.model_dump(mode="json")})
+                    if getattr(result, "error", None):
+                        report["status"], report["error"] = "error", result.error
+                        break
                 report["summary"] = "Ran without an LLM."
-                if getattr(result, "error", None):
-                    report["status"], report["error"] = "error", result.error
                 _log_run(spec, started, report)
                 log.info("%s finished: %s", spec.name, report["status"])
                 return {"reports": [report]}

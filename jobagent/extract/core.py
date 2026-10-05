@@ -25,9 +25,18 @@ _TITLE_LEVELS = [  # first match wins
 ]
 
 
-def derive_seniority(title: str, min_years: int | None, model_value: str) -> str:
-    """Title keywords first, then required years; the model's answer is only the fallback."""
-    for level, pattern in _TITLE_LEVELS:
+_BANK_LEVELS = [  # corporate-title ladder used by banks; first match wins
+    ("vp_plus", r"\bmanaging director\b"),
+    ("director", r"\b(executive director|director|senior vice president|svp)\b"),
+    ("senior", r"\b(vice president|vp)\b"),
+    ("mid", r"\bassociate\b"),
+]
+
+
+def derive_seniority(title: str, min_years: int | None, model_value: str, bank: bool = False) -> str:
+    """Title keywords first, then required years; the model's answer is only the fallback.
+    `bank=True` reads "Vice President" as a mid-senior rank, the way banks use it."""
+    for level, pattern in (_BANK_LEVELS if bank else []) + _TITLE_LEVELS:
         if re.search(pattern, title, re.I):
             return level
     if min_years is not None:

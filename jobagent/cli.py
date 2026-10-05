@@ -5,6 +5,7 @@
   jobagent agents                        show the registered agents
   jobagent pipeline "<request>"          run the orchestrator graph
   jobagent pipeline --resume <thread>    continue a run that stopped part-way
+  jobagent ui                            start the job review web page
 """
 import argparse
 import json
@@ -28,6 +29,9 @@ def main(argv: list[str] | None = None) -> int:
     pipe = sub.add_parser("pipeline", help="run the orchestrator graph")
     pipe.add_argument("request", nargs="?", default="Daily pull of all configured targets.")
     pipe.add_argument("--resume", metavar="THREAD", help="thread id of a run to continue")
+    ui = sub.add_parser("ui", help="start the job review web page")
+    ui.add_argument("--host", default="127.0.0.1", help="address to listen on (default: this machine only)")
+    ui.add_argument("--port", type=int, default=8765)
     args = vars(parser.parse_args(argv))
     # progress goes to stderr, so stdout stays clean JSON / the final report
     logging.basicConfig(level=logging.WARNING, stream=sys.stderr, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
@@ -37,6 +41,11 @@ def main(argv: list[str] | None = None) -> int:
         from jobagent.agents import AGENTS
         for a in AGENTS.values():
             print(f"{a.name} [{a.kind}]\n    {a.description}\n    tools: {', '.join(a.tools)}")
+        return 0
+    if args["cmd"] == "ui":
+        import uvicorn
+        print(f"Job review: http://{args['host']}:{args['port']}  (Ctrl-C to stop)")
+        uvicorn.run("jobagent.web.app:app", host=args["host"], port=args["port"], log_level="warning")
         return 0
     if args["cmd"] == "pipeline":
         from jobagent.agents.graph import run_pipeline

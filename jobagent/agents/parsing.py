@@ -10,6 +10,6 @@ register_agent(AgentSpec(
         "You are the parse agent. Call parse_pending_postings once, then reply with a short summary of "
         "the counts it returned. Use only numbers returned by the tool."
     ),
-    tools=("parse_pending_postings", "parse_posting"),
+    tools=("parse_pending_postings",),
     direct=True,
 ))

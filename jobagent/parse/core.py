@@ -3,6 +3,7 @@ import re
 
 from bs4 import BeautifulSoup
 
+from jobagent.config import load_targets
 from jobagent.extract.core import derive_seniority
 from jobagent.extract.schema import Location
 from jobagent.parse.schema import ParsedJob, Section
@@ -35,6 +36,9 @@ def label_heading(heading: str) -> str:
     return "other"
 
 
+_TYPED_BULLET = re.compile(r"^[•·▪●◦■\-–—\*]\s+(\S.*)$")
+
+
 def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text.replace(" ", " ")).strip()
 
@@ -50,7 +54,9 @@ def _is_heading(tag) -> str | None:
         if tag.find(["p", "div", "ul", "ol", "li"]):
             return None
         bold = _clean(" ".join(b.get_text(" ") for b in tag.find_all(["b", "strong"])))
-        if text.endswith(":") or (bold and bold == text):
+        letters = re.sub(r"[^A-Za-z]", "", text)
+        shouting = len(letters) >= 6 and letters.isupper()  # "KEY RESPONSIBILITIES"
+        if text.endswith(":") or (bold and bold == text) or shouting:
             return text
     if tag.name in ("b", "strong", "u"):
         parent = tag.find_parent(["p", "div", "h1", "h2", "h3", "h4", "h5", "h6"])
@@ -73,6 +79,12 @@ def parse_sections(description_html: str) -> list[Section]:
             if text:
                 current.bullets.append(text)
             continue
+        if tag.name in ("p", "div") and not tag.find(["p", "div", "ul", "ol", "li"]):
+            text = _clean(tag.get_text(" "))
+            typed = _TYPED_BULLET.match(text)  # some sites type "• text" in paragraphs instead of lists
+            if typed:
+                current.bullets.append(typed.group(1))
+                continue
         heading = _is_heading(tag)
         if heading and heading != current.heading:
             if current.bullets:
@@ -238,7 +250,8 @@ def parse_posting(posting: NormalizedPosting) -> ParsedJob:
         clearance_required=parse_clearance(text),
     )
     job.min_years_experience = parse_min_years(job.requirements, text)
-    job.seniority = derive_seniority(posting.title, job.min_years_experience, "unknown")
+    bank = posting.company.lower() in {c.lower() for c in load_targets().get("bank_title_companies") or []}
+    job.seniority = derive_seniority(posting.title, job.min_years_experience, "unknown", bank=bank)
     if posting.comp_min is not None and posting.comp_max is not None:  # structured pay from the ATS wins
         job.comp_min, job.comp_max, job.comp_period = posting.comp_min, posting.comp_max, posting.comp_period or "unknown"
     else:

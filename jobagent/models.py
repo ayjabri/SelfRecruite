@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
-    BigInteger, Date, ForeignKey, Index, Integer, Numeric, SmallInteger, Text,
+    BigInteger, Boolean, Date, ForeignKey, Index, Integer, Numeric, SmallInteger, Text,
     UniqueConstraint, func, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
@@ -88,6 +88,10 @@ class Job(Base):
     match_model: Mapped[str | None] = mapped_column(Text)
     golden_source_sha: Mapped[str | None] = mapped_column(Text)
     scored_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    fit_score: Mapped[int | None] = mapped_column(SmallInteger, index=True)  # fast score, no LLM, 0-100
+    fit_details: Mapped[dict | None] = mapped_column(JSONB)       # components, per-bullet matches, gates
+    user_label: Mapped[str | None] = mapped_column(Text, index=True)  # interested | not_interested
+    user_labeled_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     resume_path: Mapped[str | None] = mapped_column(Text)
     tailored_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
@@ -117,3 +121,17 @@ class Run(Base):
     counts: Mapped[dict | None] = mapped_column(JSONB)
     error: Mapped[str | None] = mapped_column(Text)
     cost_usd: Mapped[Decimal | None] = mapped_column(Numeric)
+
+
+class GoldenChunk(Base):
+    """One heading-level section of the golden-source resume, embedded for retrieval."""
+    __tablename__ = "golden_chunks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_sha: Mapped[str] = mapped_column(Text, index=True)  # sha256 of the file this came from
+    position: Mapped[int] = mapped_column(Integer)             # order in the file
+    heading: Mapped[str] = mapped_column(Text)                 # "Citi > Flagship Project > What I Built"
+    text: Mapped[str] = mapped_column(Text)
+    # True for sections handed to scoring and tailoring in full instead of being retrieved
+    always_include: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    embedding = mapped_column(Vector(768))

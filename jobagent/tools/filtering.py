@@ -8,7 +8,7 @@ from sqlalchemy import select, update
 
 from jobagent.config import get_settings
 from jobagent.db import session
-from jobagent.models import JobSource, RawPosting
+from jobagent.models import RawPosting
 from jobagent.tools.common import NORMALIZERS, NormalizedPosting
 from jobagent.tools.geo import classify_location, phrase_regex
 from jobagent.tools.registry import tool_spec
@@ -47,8 +47,8 @@ def evaluate(posting: NormalizedPosting, cfg: dict | None = None) -> tuple[bool,
 
 class FilterInput(BaseModel):
     recheck: bool = Field(False, description=(
-        "Also re-evaluate postings that were filtered or kept earlier but not extracted yet. "
-        "Use after config/filters.yaml changes."))
+        "Re-evaluate every stored posting, including ones checked earlier. Use after "
+        "config/filters.yaml changes. Jobs already created are kept but fall out of scope."))
     dry_run: bool = Field(False, description="Report what would happen without saving anything")
 
 
@@ -76,8 +76,7 @@ def filter_pending_postings(args: FilterInput) -> FilterResult:
     reasons: Counter[str] = Counter()
     decisions: dict[int, tuple[str, str]] = {}
     with session() as s:
-        extracted = select(JobSource.raw_id).where(JobSource.raw_id == RawPosting.id).exists()
-        query = select(RawPosting.id, RawPosting.source, RawPosting.payload).where(~extracted)
+        query = select(RawPosting.id, RawPosting.source, RawPosting.payload)
         if not args.recheck:
             query = query.where(RawPosting.filter_status.is_(None))
         for raw_id, source, payload in s.execute(query.order_by(RawPosting.id)):
