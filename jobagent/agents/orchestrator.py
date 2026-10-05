@@ -19,7 +19,8 @@ PLAN_PROMPT = (
     "Rules:\n"
     "- Use only the agents listed. Dispatch each agent at most once, with all of its targets in one task.\n"
     "- Use only targets from the configured list, unless the request names others explicitly.\n"
-    "- If the request narrows the run (specific companies, a per-target limit), reflect that in the task text.\n"
+    "- If the request narrows the run (specific companies, a per-target limit, how recently posted), "
+    "reflect that in the task text. Postings already stored are always skipped; no need to mention it.\n"
     "- If an agent has no targets, do not dispatch it."
 )
 

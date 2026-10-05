@@ -73,7 +73,7 @@ domains:
              machine learning, llm, generative ai, python]
 
 # Banks use "Vice President" for mid-senior staff, not executives (see seniority above)
-bank_title_companies: [JPMorgan Chase, Citi, BNY, Goldman Sachs, Citizens Bank, Morgan Stanley,
+bank_title_companies: [JPMorgan Chase, Citi, BNY, Goldman Sachs, Citizens Bank, Capital One, Morgan Stanley,
                        Bank of America, Wells Fargo, Barclays, Deutsche Bank, HSBC, UBS, TD Bank,
                        BlackRock, State Street, Northern Trust]
 

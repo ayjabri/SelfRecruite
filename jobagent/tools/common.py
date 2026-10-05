@@ -1,10 +1,11 @@
 """Shapes and helpers shared by every source tool."""
 import hashlib
 import logging
+import math
 import html
 import re
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bs4 import BeautifulSoup
 from pydantic import BaseModel
@@ -127,3 +128,32 @@ def get_company(s, name: str, ats: str, slug: str | None) -> Company:
         s.add(c)
         s.flush()
     return c
+
+
+def days_since(value, today=None) -> int | None:
+    """Days between a posting date (ISO date/datetime string) and today; None if unparseable."""
+    if not value:
+        return None
+    try:
+        posted = datetime.fromisoformat(str(value).replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+    return ((today or datetime.now(timezone.utc).date()) - posted).days
+
+
+def hours_since(value) -> float | None:
+    """Hours between a posting timestamp and now; date-only values count from midnight UTC."""
+    if not value:
+        return None
+    try:
+        posted = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if posted.tzinfo is None:
+        posted = posted.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - posted).total_seconds() / 3600
+
+
+def hours_to_days(hours: int | None) -> int | None:
+    """Sources that only say 'posted today / yesterday' get the day count that covers the window."""
+    return None if hours is None else math.ceil(hours / 24)

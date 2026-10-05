@@ -100,3 +100,28 @@ def test_oracle_normalize_joins_description_parts():
     assert (n.title, n.requisition_id, n.url) == ("Analyst", "210", "u")
     assert n.location_text == "New York, NY, United States; Plano, TX, United States"
     assert "About" in n.description_text and "5 years" in n.description_text
+
+
+def test_workday_posted_days_ago():
+    from jobagent.tools.workday import posted_days_ago
+    assert posted_days_ago("Posted Today") == 0
+    assert posted_days_ago("Posted Yesterday") == 1
+    assert posted_days_ago("Posted 3 Days Ago") == 3
+    assert posted_days_ago("Posted 30+ Days Ago") == 31
+    assert posted_days_ago(None) is None
+
+
+def test_days_since():
+    from datetime import date
+    from jobagent.tools.common import days_since
+    assert days_since("2026-10-03", today=date(2026, 10, 5)) == 2
+    assert days_since("2026-10-05T14:55:02+00:00", today=date(2026, 10, 5)) == 0
+    assert days_since("garbage") is None and days_since(None) is None
+
+
+def test_hours_to_days_covers_the_window():
+    from jobagent.tools.common import hours_to_days
+    assert hours_to_days(None) is None
+    assert hours_to_days(24) == 1    # "last 24 hours" needs today and yesterday on day-granular sources
+    assert hours_to_days(48) == 2
+    assert hours_to_days(168) == 7

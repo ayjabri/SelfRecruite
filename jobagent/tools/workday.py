@@ -1,9 +1,11 @@
 """Workday career-site tools (public CXS endpoints, no key)."""
+import re
+
 import httpx
 from pydantic import BaseModel, Field
 
 from jobagent.tools.common import (
-    NORMALIZERS, FetchResult, NormalizedPosting, RawItem, content_hash, html_to_text,
+    NORMALIZERS, FetchResult, NormalizedPosting, RawItem, content_hash, hours_to_days, html_to_text,
     known_external_ids, store_raw_postings,
 )
 from jobagent.tools.http import describe_error, new_client, request_json
@@ -22,7 +24,21 @@ class FetchWorkdayInput(BaseModel):
     search_text: str = Field("", description="Keyword search, e.g. 'treasury'; empty for newest postings")
     limit: int | None = Field(None, ge=1, description="Maximum new postings to store; omit for all")
     us_only: bool = Field(True, description="Store only postings located in the United States")
+    posted_within_hours: int | None = Field(None, ge=1, description=(
+        "Only postings from the last N hours (24 = last day, 48, 168 = last week); omit for any age"))
     refresh: bool = Field(False, description="Re-fetch postings that are already stored (to detect edits)")
+
+
+_POSTED = re.compile(r"posted\s+(today|yesterday|(\d+)\+?\s+days?\s+ago)", re.I)
+
+
+def posted_days_ago(text: str | None) -> int | None:
+    """Workday lists 'Posted Today', 'Posted Yesterday', 'Posted 3 Days Ago', 'Posted 30+ Days Ago'."""
+    m = _POSTED.search(text or "")
+    if not m:
+        return None
+    word = m.group(1).lower()
+    return 0 if word == "today" else 1 if word == "yesterday" else int(m.group(2)) + ("+" in word)
 
 
 def _external_id(listing: dict) -> str:
@@ -66,6 +82,7 @@ def fetch_workday_jobs(args: FetchWorkdayInput) -> FetchResult:
     base = f"https://{tenant}.{dc}.myworkdayjobs.com/wday/cxs/{tenant}/{site}"
     company = args.company or tenant.capitalize()
     known = set() if args.refresh else known_external_ids(SOURCE, args.site)
+    max_days = hours_to_days(args.posted_within_hours)
     items: list[RawItem] = []
     max_scan = None if args.limit is None else max(100, args.limit * 10)  # bound the work when filtering
     offset = scanned = 0
@@ -77,11 +94,16 @@ def fetch_workday_jobs(args: FetchWorkdayInput) -> FetchResult:
                 }).get("jobPostings") or []
                 if not page:
                     break
+                stop = False
                 for listing in page:
                     scanned += 1
                     if not listing.get("externalPath"):  # some listings come back as stubs with no link
                         result.filtered_out += 1
                         continue
+                    age = posted_days_ago(listing.get("postedOn"))  # Workday only says today / yesterday / N days
+                    if max_days is not None and age is not None and age > max_days:
+                        stop = True  # listings come newest first, so nothing after this is recent enough
+                        break
                     ext_id = _external_id(listing)
                     if ext_id in known:
                         result.already_present += 1
@@ -98,7 +120,7 @@ def fetch_workday_jobs(args: FetchWorkdayInput) -> FetchResult:
                     if args.limit is not None and len(items) >= args.limit:
                         break
                 offset += PAGE_SIZE
-                if max_scan is not None and scanned >= max_scan:
+                if stop or (max_scan is not None and scanned >= max_scan):
                     break
     except httpx.HTTPError as e:
         result.error = describe_error(e)  # keep what was fetched before the failure

@@ -6,6 +6,7 @@ greenhouse:
 workday:   # site = tenant:wdN:site, from https://<tenant>.<wdN>.myworkdayjobs.com/<site>
   - {company: NVIDIA, site: "nvidia:wd5:NVIDIAExternalCareerSite"}
   - {company: Citi, site: "citi:wd5:2"}
+  - {company: Capital One, site: "capitalone:wd12:Capital_One"}
 
 oracle:    # host and site_number from https://<host>/hcmUI/CandidateExperience/en/sites/<site_number>
   - {company: JPMorgan Chase, host: jpmc.fa.oraclecloud.com, site_number: CX_1001}
