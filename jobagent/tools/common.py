@@ -7,6 +7,7 @@ from datetime import datetime
 
 from bs4 import BeautifulSoup
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from jobagent.db import session
@@ -22,6 +23,7 @@ class FetchResult(BaseModel):
     fetched: int = 0
     inserted: int = 0
     already_present: int = 0
+    filtered_out: int = 0    # seen but not stored (e.g. outside the US)
     raw_ids: list[int] = []  # newly inserted rows, capped at MAX_IDS_RETURNED
     error: str | None = None
 
@@ -70,6 +72,13 @@ def clean_requisition_id(req: str | None) -> str | None:
     """Feeds sometimes put filler like 'See Opening ID' where a requisition ID belongs."""
     req = (req or "").strip()
     return None if not req or _PLACEHOLDER_REQ.search(req) else req
+
+
+def known_external_ids(source: str, target: str) -> set[str]:
+    """IDs already stored for this target, so sources that need a detail call per posting can skip them."""
+    with session() as s:
+        return set(s.scalars(select(RawPosting.external_id).where(
+            RawPosting.source == source, RawPosting.target == target)))
 
 
 def store_raw_postings(source: str, target: str, items: list[RawItem]) -> FetchResult:

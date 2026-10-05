@@ -13,12 +13,12 @@ def test_graph_is_generated_from_the_registry(monkeypatch):
     """Adding a source or a stage is one AgentSpec; the graph picks it up with no other change."""
     extra = {
         **registry.AGENTS,
-        "workday_agent": AgentSpec("workday_agent", "source", "d", "p", ("fetch_greenhouse_jobs",)),
+        "lever_agent": AgentSpec("lever_agent", "source", "d", "p", ("fetch_greenhouse_jobs",)),
         "dedup_agent": AgentSpec("dedup_agent", "stage", "d", "p", ("extract_posting",), order=20),
     }
     monkeypatch.setattr(registry, "AGENTS", extra)
     g = build_graph().compile().get_graph()
     edges = {(e.source, e.target) for e in g.edges}
-    assert {"greenhouse_agent", "workday_agent", "extraction_agent", "dedup_agent"} <= set(g.nodes)
-    assert ("plan", "workday_agent") in edges and ("workday_agent", "review") in edges
+    assert {"greenhouse_agent", "lever_agent", "extraction_agent", "dedup_agent"} <= set(g.nodes)
+    assert ("plan", "lever_agent") in edges and ("lever_agent", "review") in edges
     assert ("extraction_agent", "dedup_agent") in edges and ("dedup_agent", "report") in edges

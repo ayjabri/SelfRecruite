@@ -2,6 +2,7 @@ from jobagent.extract.core import apply_guardrails, derive_seniority
 from jobagent.extract.schema import JobExtract
 from jobagent.tools import TOOLS
 from jobagent.tools.common import NormalizedPosting, clean_requisition_id, content_hash
+from jobagent.tools import oracle, workday
 from jobagent.tools.greenhouse import normalize
 
 
@@ -75,3 +76,27 @@ def test_ats_compensation_wins_over_model():
     p = NormalizedPosting(company="A", title="T", description_text="x", comp_min=1.0, comp_max=2.0, comp_period="hour")
     ex = apply_guardrails(_extract(comp_min=5, comp_max=6, comp_text="made up"), p)
     assert (ex.comp_min, ex.comp_max, ex.comp_period, ex.comp_text) == (1.0, 2.0, "hour", None)
+
+
+def test_workday_normalize():
+    n = workday.normalize({"company": "NVIDIA", "listing": {}, "detail": {
+        "title": "Engineer", "jobDescription": "<p>Do <b>things</b></p>", "location": "US, CA, Santa Clara",
+        "additionalLocations": ["US, TX, Austin"], "jobReqId": "JR1", "externalUrl": "u", "startDate": "2026-10-05",
+    }})
+    assert (n.company, n.requisition_id, n.url) == ("NVIDIA", "JR1", "u")
+    assert n.location_text == "US, CA, Santa Clara; US, TX, Austin"
+    assert "things" in n.description_text and "<" not in n.description_text
+    assert workday._external_id({"bulletFields": ["JR9"], "externalPath": "/job/x/T_JR9"}) == "JR9"
+    assert workday._external_id({"externalPath": "/job/x/T_JR9"}) == "JR9"
+
+
+def test_oracle_normalize_joins_description_parts():
+    n = oracle.normalize({"company": "JPMorgan Chase", "url": "u", "listing": {}, "detail": {
+        "Id": "210", "Title": " Analyst ", "PrimaryLocation": "New York, NY, United States",
+        "secondaryLocations": [{"Name": "Plano, TX, United States"}],
+        "ExternalDescriptionStr": "<p>About</p>", "ExternalQualificationsStr": "<p>5 years</p>",
+        "ExternalResponsibilitiesStr": None, "ExternalPostedStartDate": "2026-10-05T14:55:02+00:00",
+    }})
+    assert (n.title, n.requisition_id, n.url) == ("Analyst", "210", "u")
+    assert n.location_text == "New York, NY, United States; Plano, TX, United States"
+    assert "About" in n.description_text and "5 years" in n.description_text
