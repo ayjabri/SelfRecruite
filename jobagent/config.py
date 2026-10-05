@@ -39,7 +39,7 @@ def get_settings() -> Settings:
         companies_file=Path(os.environ.get("COMPANIES_FILE", ROOT / "config" / "companies.yaml")),
         filters_file=Path(os.environ.get("FILTERS_FILE", ROOT / "config" / "filters.yaml")),
         golden_source_file=Path(os.environ.get(
-            "GOLDEN_SOURCE_FILE", ROOT / "docs" / "Ethan_jabri_golden_source.md")),
+            "GOLDEN_SOURCE_FILE", ROOT / "docs" / "Ethan_Jabri_Golden_Source_Resume.md")),
         targets_file=Path(os.environ.get("TARGETS_FILE", ROOT / "config" / "targets.yaml")),
         embed_model=os.environ.get("EMBED_MODEL", "nomic-embed-text"),
     )

@@ -62,6 +62,8 @@ def test_locations():
     assert [(x.city, x.state, x.country) for x in parse_locations("US, CA, Santa Clara")] == [("Santa Clara", "CA", "US")]
     assert [(x.city, x.state, x.country) for x in parse_locations("Tokyo, Japan")] == [("Tokyo", None, "Japan")]
     assert [(x.city, x.state, x.country) for x in parse_locations("Charlotte, NC, United States")] == [("Charlotte", "NC", "US")]
+    # Citi's Workday format has no commas
+    assert [(x.city, x.state) for x in parse_locations("Tampa Florida United States; Getzville New York United States")] == [("Tampa", "FL"), ("Getzville", "NY")]
 
 
 def test_parse_posting_end_to_end():

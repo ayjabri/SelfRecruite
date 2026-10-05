@@ -1,7 +1,9 @@
-# What a good job looks like for you. Used by the fast score (no LLM).
-# After editing, run:  jobagent run score_jobs_fast --rescore true
+# What a good job looks like for you. Used by the fast score (no LLM) and the preference model.
+# Derived from the golden-source resume (EXECUTIVE PROFILE — Variants A–F) and your current search:
+# Director-level roles, New York / New Jersey, banking and financial technology.
+# After editing, run:  jobagent run score_jobs_fast --rescore true   (then train_preference_model)
 
-# fit = 100 x (required*M + preferred*P + title_family*F + seniority*S + domain*D)
+# rule score = 100 x (required*M + preferred*P + title_family*F + seniority*S + domain*D)
 weights:
   required: 0.45       # M: how well your resume covers the required bullets
   preferred: 0.20      # P: same for the preferred bullets
@@ -15,47 +17,69 @@ similarity:
   floor: 0.55
   ceiling: 0.80
 
-# F: the highest weight among the families whose keywords appear in the title (0 if none)
+# F: the highest weight among the families whose keywords appear in the title (0 if none).
+# One family per Executive Profile variant, so a job's family also says which variant to tailor from.
 title_families:
-  treasury_alm:
+  E_treasury_alm:            # Variant E — Treasury & ALM
     weight: 1.0
-    keywords: [treasury, alm, asset liability, asset/liability, liquidity, interest rate risk, irrbb, balance sheet, funds transfer pricing]
-  ai_product:
+    keywords: [treasury, alm, asset liability, asset/liability, liquidity, interest rate risk, interest rate,
+               irrbb, balance sheet, nii, net interest income, funds transfer pricing, ftp, deposit, alco]
+  B_ai_product:              # Variant B — AI Product Management
     weight: 1.0
-    keywords: [product manager, product management, product owner, product lead, program manager, project manager]
-  ai_ml_engineering:
+    keywords: [ai product, ai implementation, ai transformation, ai program, ai strategy, genai product,
+               ai enablement, ai adoption, ai solutions, agentic, ai platform]
+  D_ai_ml:                   # Variant D — AI & Machine Learning
     weight: 0.9
-    keywords: [ai, ml, machine learning, llm, genai, generative ai, python, data scientist, data science]
-  quant:
+    keywords: [machine learning, ml, ai engineer, applied ai, data scientist, data science, genai,
+               generative ai, llm, ai/ml, ai & ml, ai, deep learning, nlp]
+  C_quant:                   # Variant C — Quantitative Analytics & Modeling
     weight: 0.9
-    keywords: [quantitative, quant, model risk, risk analytics, risk modeling, risk modelling]
-  analytics:
+    keywords: [quantitative, quant, model validation, model risk, model development, modeling, modelling,
+               risk analytics, balance sheet analytics, analytics and modeling]
+  A_product_delivery_ba:     # Variant A — Product / Project Management & Business Analysis
+    weight: 0.85
+    keywords: [product manager, product management, product owner, product lead, head of product,
+               program manager, project manager, delivery manager, delivery lead, scrum master,
+               business analyst, business analysis, business technology analyst, business systems analyst,
+               solution design, solutions lead]
+  F_technology:              # Variant F — Technology & Engineering
     weight: 0.8
-    keywords: [business analyst, business systems analyst, business analysis, data analyst, analytics]
+    keywords: [python, software engineer, software engineering, data engineer, data engineering,
+               analytics engineer, analytics engineering, technical lead, tech lead, engineering lead,
+               engineering manager, platform engineer, developer, treasury technology, technology lead,
+               head of engineering, data platform, analytics platform, tableau, bi, business intelligence]
 
-# S: how well each seniority level suits you
+# S: how well each seniority level suits you. You are searching for Director roles.
+# At the listed banks (below), Executive Director / Director / SVP read as "director",
+# Managing Director as "vp_plus", Vice President as "senior", Associate as "mid".
 seniority:
   director: 1.0
-  lead: 1.0
-  vp_plus: 0.8
-  senior: 0.8
-  mid: 0.3
+  vp_plus: 0.7
+  lead: 0.7
+  senior: 0.5
+  unknown: 0.4
+  mid: 0.1
   entry: 0.0
-  unknown: 0.5
 
 # D: 1.0 for these employers; otherwise 1/3 per distinct keyword found in the title and requirements
 domains:
-  companies: [JPMorgan Chase, Citi, BNY, Goldman Sachs, Citizens Bank, Stripe]
-  keywords: [bank, banking, treasury, fintech, financial services, capital markets, payments, balance sheet, risk management, machine learning, llm, generative ai]
+  companies: [JPMorgan Chase, Citi, BNY, Goldman Sachs, Citizens Bank, Morgan Stanley, Bank of America,
+              Wells Fargo, Barclays, Deutsche Bank, HSBC, UBS, TD Bank, Capital One, American Express,
+              Stripe, Mastercard, Visa, PayPal, Block, Fiserv, FIS, Broadridge, BlackRock, State Street,
+              Northern Trust, Fannie Mae, Freddie Mac, Federal Reserve, OCC, FINRA, DTCC, Nasdaq, ICE]
+  keywords: [bank, banking, treasury, fintech, financial services, financial institution, capital markets,
+             payments, balance sheet, liquidity, interest rate, regulatory, risk management, asset management,
+             wealth management, trading, securities, lending, credit, broker, custody, clearing, settlement,
+             machine learning, llm, generative ai, python]
 
-# Banks use "Vice President" for mid-senior staff, not executives. For these employers:
-# Managing Director -> vp_plus, Executive Director / Director / SVP -> director,
-# Vice President -> senior, Associate -> mid.
-bank_title_companies: [JPMorgan Chase, Citi, BNY, Goldman Sachs, Citizens Bank]
+# Banks use "Vice President" for mid-senior staff, not executives (see seniority above)
+bank_title_companies: [JPMorgan Chase, Citi, BNY, Goldman Sachs, Citizens Bank, Morgan Stanley,
+                       Bank of America, Wells Fargo, Barclays, Deutsche Bank, HSBC, UBS, TD Bank,
+                       BlackRock, State Street, Northern Trust]
 
 # Hard gates: a job that trips one is capped at 30, with the reason recorded
 gates:
   clearance_required: true   # cap jobs that need a security clearance
-  phd_required: true         # cap jobs whose requirements name a PhD
-  pay_floor: null            # e.g. 180000: cap jobs whose top of range is below this
-  allowed_states: []         # e.g. [NY, NJ, CT]: cap non-remote jobs elsewhere. Empty = no location gate
+  phd_required: true         # cap jobs whose requirements name a PhD (Variant C: no PhD-gated quant research)
+  pay_floor: null            # e.g. 200000: cap jobs whose top of range is below this
+  allowed_states: [NY, NJ]   # cap non-remote jobs located elsewhere at 30 (remote jobs pass)

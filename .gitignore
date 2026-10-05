@@ -6,5 +6,5 @@ backups/
 *.egg-info/
 .pytest_cache/
 # golden-source resume (personal)
-/docs/Ethan_jabri_golden_source.md
+/docs/Ethan_*
 data/

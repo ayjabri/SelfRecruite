@@ -5,47 +5,92 @@
 
 title:
   # a posting is kept only if its title contains at least one of these...
+  # (grouped by the Executive Profile variants in the golden-source resume)
   include:
-    # AI product / project management
+    # Variant A — Product / Project Management & Business Analysis
     - product manager
     - product management
     - product owner
     - product lead
+    - head of product
     - program manager
     - project manager
-    # business analysis
+    - delivery manager
+    - delivery lead
+    - scrum master
     - business analyst
-    - business systems analyst
     - business analysis
-    - data analyst
+    - business technology analyst
+    - business systems analyst
+    - solution design
+    - solutions lead
+    # Variant B — AI Product Management
+    - ai product
+    - ai implementation
+    - ai transformation
+    - ai program
+    - ai strategy
+    - ai enablement
+    - ai adoption
+    - ai solutions
+    - agentic
+    - ai platform
+    # Variant C — Quantitative Analytics & Modeling
+    - quantitative
+    - quant
+    - model validation
+    - model risk
+    - model development
+    - modeling
+    - modelling
+    - risk analytics
     - analytics
-    # Python and AI/ML engineering
+    # Variant D — AI & Machine Learning
     - ai
     - ml
     - machine learning
     - llm
     - genai
     - generative ai
-    - python
     - data scientist
     - data science
-    # Treasury / ALM
+    - deep learning
+    - nlp
+    # Variant E — Treasury & ALM
     - treasury
     - alm
     - asset liability
     - asset/liability
     - liquidity
     - interest rate risk
+    - interest rate
     - irrbb
     - balance sheet
+    - nii
+    - net interest income
     - funds transfer pricing
-    # ALM quant analytics
-    - quantitative
-    - quant
-    - model risk
-    - risk analytics
-    - risk modeling
-    - risk modelling
+    - deposit
+    - alco
+    # Variant F — Technology & Engineering
+    - python
+    - software engineer
+    - software engineering
+    - data engineer
+    - data engineering
+    - analytics engineer
+    - technical lead
+    - tech lead
+    - engineering lead
+    - engineering manager
+    - platform engineer
+    - developer
+    - treasury technology
+    - technology lead
+    - head of engineering
+    - data platform
+    - tableau
+    - business intelligence
+    - data analyst
 
   # ...and none of these
   exclude:
@@ -79,5 +124,5 @@ title:
 
 location:
   us_only: true      # drop postings clearly outside the US; unclear locations are kept
-  extra_us: []       # extra place names to treat as US, e.g. [Plano, Jersey City]
+  extra_us: [New Jersey, New York, Jersey City, NYC, NJ]       # extra place names to treat as US, e.g. [Plano, Jersey City]
   extra_non_us: []   # extra place names to treat as non-US

@@ -202,6 +202,8 @@ def parse_employment_type(source_value: str | None, title: str) -> str:
 
 _STATE_NAMES = {name.lower(): code for code, name in STATES.items()}
 _US_WORDS = {"us", "usa", "u.s.", "united states", "united states of america"}
+_US_WORDS_RX = re.compile(r"\b(united states of america|united states|usa|us)\b", re.I)
+_STATE_NAME_RX = re.compile(r"\b(" + "|".join(re.escape(n) for n in sorted(_STATE_NAMES, key=len, reverse=True)) + r")\b", re.I)
 
 
 def parse_locations(location_text: str) -> list[Location]:
@@ -224,6 +226,12 @@ def parse_locations(location_text: str) -> list[Location]:
                 state = _STATE_NAMES[p.lower()]
             else:
                 rest.append(p)
+        if state is None and where == "us":  # "Tampa Florida United States" (no commas)
+            m = _STATE_NAME_RX.search(segment)
+            if m:
+                state = _STATE_NAMES[m.group(0).lower()]
+                cleaned = _US_WORDS_RX.sub("", _STATE_NAME_RX.sub("", segment))
+                rest = [re.sub(r"\s+", " ", cleaned).strip(" ,")] if cleaned.strip(" ,") else []
         if where != "us" and len(rest) > 1:
             country = rest.pop()
         if rest and not re.search(r"\bremote\b", rest[0], re.I):
