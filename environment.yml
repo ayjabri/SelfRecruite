@@ -1,0 +1,8 @@
+# conda env create -f environment.yml   (dependencies themselves are listed in pyproject.toml)
+name: jobagent
+channels: [conda-forge]
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - -e .[dev]

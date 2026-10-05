@@ -1,0 +1,41 @@
+[project]
+name = "jobagent"
+version = "0.1.0"
+description = "Daily job-match agent: LangGraph agents over a registry of plain tools"
+requires-python = ">=3.12"
+dependencies = [
+    "sqlalchemy>=2",
+    "alembic",
+    "psycopg[binary]",
+    "pgvector",
+    "python-dotenv",
+    "pydantic>=2",
+    "pyyaml",
+    "httpx",
+    "tenacity",
+    "beautifulsoup4",
+    "langgraph>=1",
+    "langchain>=1",
+    "langchain-ollama",
+    "langgraph-checkpoint-postgres",
+    "mcp",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+anthropic = ["langchain-anthropic"]
+
+[project.scripts]
+jobagent = "jobagent.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["jobagent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["live: needs network, the database or Ollama"]
+addopts = "-m 'not live'"
