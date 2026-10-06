@@ -267,3 +267,36 @@ def label_job(args: LabelJobInput) -> LabelJobResult:
         job.user_label = None if args.label == "clear" else args.label
         job.user_labeled_at = None if args.label == "clear" else datetime.now(timezone.utc)
         return LabelJobResult(job_id=job.id, label=job.user_label)
+
+
+class AnnotateJobInput(BaseModel):
+    job_id: int = Field(description="jobs.id to annotate")
+    favorite: bool | None = Field(None, description="Mark (true) or unmark (false) as a favorite; omit to leave as is")
+    applied: bool | None = Field(None, description="Record (true) or clear (false) that the user applied; omit to leave as is")
+    notes: str | None = Field(None, description="Replace the user's notes on the job; omit to leave as is")
+
+
+class AnnotateJobResult(BaseModel):
+    job_id: int
+    favorite: bool = False
+    applied_at: datetime | None = None
+    notes: str | None = None
+    error: str | None = None
+
+
+@tool_spec(
+    name="annotate_job",
+    description="Set the user's favorite flag, applied flag or notes on a job. Fields left out are unchanged.",
+)
+def annotate_job(args: AnnotateJobInput) -> AnnotateJobResult:
+    with session() as s, s.begin():
+        job = s.get(Job, args.job_id)
+        if job is None:
+            return AnnotateJobResult(job_id=args.job_id, error="no such job")
+        if args.favorite is not None:
+            job.favorite = args.favorite
+        if args.applied is not None:
+            job.applied_at = datetime.now(timezone.utc) if args.applied else None
+        if args.notes is not None:
+            job.notes = args.notes.strip() or None
+        return AnnotateJobResult(job_id=job.id, favorite=job.favorite, applied_at=job.applied_at, notes=job.notes)

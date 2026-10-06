@@ -94,6 +94,9 @@ class Job(Base):
     fit_details: Mapped[dict | None] = mapped_column(JSONB)       # components, per-bullet matches, gates
     user_label: Mapped[str | None] = mapped_column(Text, index=True)  # interested | not_interested
     user_labeled_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    favorite: Mapped[bool] = mapped_column(Boolean, server_default="false", index=True)
+    applied_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))  # set when marked applied
+    notes: Mapped[str | None] = mapped_column(Text)                                 # your own comments
     resume_path: Mapped[str | None] = mapped_column(Text)
     tailored_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 

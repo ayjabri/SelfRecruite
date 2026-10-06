@@ -46,6 +46,8 @@
   .row.not_interested { box-shadow: inset 4px 0 0 var(--no); opacity: .6; }
   .count { padding: 6px 12px; color: var(--muted); font-size: 12.5px; border-bottom: 1px solid var(--line); }
   h2 { margin: 0 0 2px; font-size: 20px; }
+  .titlerow { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+  .req { flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .sub { color: var(--muted); margin-bottom: 12px; }
   .actions { display: flex; gap: 8px; margin: 14px 0 18px; flex-wrap: wrap; align-items: center; }
   .actions button { padding: 7px 14px; cursor: pointer; font-weight: 600; }
@@ -70,6 +72,22 @@
   ul.plain { margin: 0; padding-left: 18px; }
   details summary { cursor: pointer; color: var(--muted); }
   pre { white-space: pre-wrap; font: inherit; margin: 10px 0 0; }
+  .tags { flex: none; display: flex; flex-direction: column; gap: 3px; align-items: flex-end; font-size: 12px; }
+  .heart { color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; background: none; border: 0; padding: 0; }
+  .heart.on { color: var(--no); }
+  .tag { border-radius: 999px; padding: 1px 7px; font-size: 11px; font-weight: 600; background: var(--yes-bg); color: var(--yes); border: 1px solid var(--yes); }
+  .tag.note { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
+  .actions button.fav.on { background: var(--no-bg); border-color: var(--no); color: var(--no); }
+  .actions button.app.on { background: var(--yes-bg); border-color: var(--yes); color: var(--yes); }
+  textarea { width: 100%; min-height: 90px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; resize: vertical; }
+  .saved { color: var(--muted); font-size: 12px; margin-top: 4px; min-height: 16px; }
+  .fitrow { display: grid; grid-template-columns: 1fr 150px; gap: 14px; align-items: stretch; margin-bottom: 14px; }
+  .fitrow .card { margin-bottom: 0; }
+  .dial { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 10px; }
+  .dial svg { width: 120px; height: 72px; overflow: visible; }
+  .dial .big { font-size: 26px; font-weight: 700; line-height: 1; margin-top: -30px; font-variant-numeric: tabular-nums; }
+  .dial .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-top: 4px; }
+  @media (max-width: 800px) { .fitrow { grid-template-columns: 1fr; } }
   .empty { color: var(--muted); padding: 40px; text-align: center; }
   #dups { flex: 1; overflow-y: auto; padding: 20px 28px 60px; }
   .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
@@ -97,6 +115,12 @@
     <option value="24h">Past 24 hours</option>
     <option value="7d">Past week</option>
     <option value="30d">Past month</option>
+  </select>
+  <select id="flag">
+    <option value="any">Any status</option>
+    <option value="favorite">♥ Favorites</option>
+    <option value="applied">Applied</option>
+    <option value="not_applied">Not applied</option>
   </select>
   <label class="f">Min score <input type="number" id="min_score" min="0" max="100" value="0"></label>
   <select id="sort"><option value="score">Highest score</option><option value="newest">Newest</option></select>
@@ -129,7 +153,7 @@ async function api(path, opts) {
 async function loadSummary() {
   const s = await api("/api/summary");
   const done = s.interested + s.not_interested;
-  $("progress").innerHTML = `<b>${done}</b> of ${s.in_scope} marked · <b>${s.interested}</b> interested · <b>${s.not_interested}</b> not`;
+  $("progress").innerHTML = `<b>${done}</b> of ${s.in_scope} marked · <b>${s.interested}</b> interested · <b>${s.not_interested}</b> not · <b>${s.favorites}</b> ♥ · <b>${s.applied}</b> applied`;
   $("dupbtn").textContent = `Possible duplicates (${s.pending_duplicates})`;
   const sel = $("company"), cur = sel.value;
   sel.innerHTML = '<option value="">All companies</option>' + s.companies.map(c => `<option>${esc(c)}</option>`).join("");
@@ -138,7 +162,7 @@ async function loadSummary() {
 
 async function loadJobs(keep) {
   const p = new URLSearchParams({
-    q: $("q").value, company: $("company").value, label: $("label").value, sort: $("sort").value, posted: $("posted").value,
+    q: $("q").value, company: $("company").value, label: $("label").value, flag: $("flag").value, sort: $("sort").value, posted: $("posted").value,
     min_score: $("min_score").value || 0, scope: $("scope").checked ? "all" : "in_scope",
   });
   const data = await api("/api/jobs?" + p);
@@ -153,14 +177,17 @@ function renderList(total) {
   $("list").innerHTML = `<div class="count">${shown}</div>` + jobs.map(j => `
     <div class="row ${j.label || ""} ${j.id === selected ? "sel" : ""}" data-id="${j.id}">
       <div class="score ${j.gated ? "gated" : ""}" title="${j.gated ? "Capped by a hard gate" : "Fit score"}">${j.fit_score ?? "–"}</div>
-      <div><div class="t">${esc(j.title)}</div>
+      <div style="flex:1;min-width:0"><div class="t">${esc(j.title)}</div>
         <div class="m">${esc(j.company)}${j.location ? " · " + esc(j.location) : ""}</div>
         <div class="m">${[j.seniority !== "unknown" ? j.seniority : "", j.workplace !== "unknown" ? j.workplace : "", money(j), "posted " + j.posted].filter(Boolean).map(esc).join(" · ")}</div>
       </div>
+      <div class="tags"><button class="heart ${j.favorite ? "on" : ""}" data-fav="${j.id}" title="Favorite (F)">${j.favorite ? "♥" : "♡"}</button>
+        ${j.applied ? '<span class="tag">applied</span>' : ""}${j.has_notes ? '<span class="tag note">note</span>' : ""}</div>
     </div>`).join("");
 }
 
 async function select(id) {
+  if (notesTimer && selected != null && selected !== id) { clearTimeout(notesTimer); const t = $("notes"); if (t) annotate(selected, {notes: t.value}); notesTimer = null; }
   selected = id;
   document.querySelectorAll(".row").forEach(r => r.classList.toggle("sel", +r.dataset.id === id));
   document.querySelector(".row.sel")?.scrollIntoView({block: "nearest"});
@@ -169,6 +196,21 @@ async function select(id) {
   renderDetail(j);
 }
 
+function scoreColor(score) {           // 0 = red, 50 = amber, 100 = green
+  return `hsl(${Math.round(score * 1.2)} 70% 42%)`;
+}
+function dial(score, gated) {
+  // half-circle gauge: radius 50, centre (60,60), arc length = pi * 50
+  const len = Math.PI * 50, filled = len * Math.max(0, Math.min(100, score)) / 100, color = scoreColor(score);
+  return `<div class="card dial" title="${gated ? "Capped at 30 by a hard gate" : "Overall fit score"}">
+    <svg viewBox="0 0 120 70" aria-label="fit score ${score}">
+      <path d="M10 60 A50 50 0 0 1 110 60" fill="none" stroke="var(--bar)" stroke-width="12" stroke-linecap="round"/>
+      <path d="M10 60 A50 50 0 0 1 110 60" fill="none" stroke="${color}" stroke-width="12" stroke-linecap="round"
+            stroke-dasharray="${filled.toFixed(1)} ${len.toFixed(1)}"/>
+    </svg>
+    <div class="big" style="color:${color}">${score}</div>
+    <div class="lbl">${gated ? "capped" : "fit"}</div></div>`;
+}
 function renderDetail(j) {
   const d = j.fit_details || {}, c = d.components || {};
   const names = {required: "Required match", preferred: "Preferred match", title_family: "Title family", seniority: "Seniority", domain: "Domain"};
@@ -188,21 +230,27 @@ function renderDetail(j) {
   const other = (j.sections || []).filter(s => s.label === "responsibilities" || s.label === "other");
   const req = bullets("required"), pref = bullets("preferred");
   $("detail").innerHTML = `
-    <h2>${esc(j.title)}</h2>
+    <div class="titlerow"><h2>${esc(j.title)}</h2>${j.requisition_id ? `<span class="req" title="Requisition ID">Req ${esc(j.requisition_id)}</span>` : ""}</div>
     <div class="sub">${esc(j.company)}</div>
     <div class="actions">
       <button class="yes ${j.label === "interested" ? "on" : ""}" data-label="interested">Interested <kbd>I</kbd></button>
       <button class="no ${j.label === "not_interested" ? "on" : ""}" data-label="not_interested">Not interested <kbd>X</kbd></button>
       ${j.label ? '<button data-label="clear">Clear <kbd>U</kbd></button>' : ""}
+      <button class="fav ${j.favorite ? "on" : ""}" data-annotate="favorite">${j.favorite ? "♥" : "♡"} Favorite <kbd>F</kbd></button>
+      <button class="app ${j.applied_at ? "on" : ""}" data-annotate="applied">${j.applied_at ? "✓ Applied " + esc(j.applied_at) : "Mark applied"} <kbd>A</kbd></button>
       ${j.url ? `<a href="${esc(j.url)}" target="_blank" rel="noopener">Open posting ↗</a>` : ""}
       <span class="match" style="color:var(--muted);margin-left:auto"><kbd>J</kbd>/<kbd>K</kbd> next / previous</span>
     </div>
     <div class="facts">${facts}${gates}</div>
+    <div class="card"><h3>Your notes</h3><textarea id="notes" placeholder="Anything you want to remember about this job: who you spoke to, why it stands out, follow-ups…">${esc(j.notes)}</textarea><div class="saved" id="notes-saved"></div></div>
     ${j.fit_score == null ? '<div class="card">This job has no fit score (it was filtered out before scoring).</div>' : `
-    <div class="card"><h3>Fit score ${j.fit_score}${d.title_family ? " · " + esc(d.title_family.replace(/_/g, " ")) : ""}</h3>
+    <div class="fitrow">
+    <div class="card"><h3>Fit score${d.title_family ? " · " + esc(d.title_family.replace(/_/g, " ")) : ""}</h3>
       ${d.preference != null ? `<p style="margin:0 0 10px">Learned from your marks: <b>${Math.round(d.preference * 100)}%</b> likely to interest you
         <span class="match" style="color:var(--muted)">(model trained on ${d.model?.labels ?? "?"} marked jobs). The rule-based score below is ${d.rule_score}.</span></p>` : ""}
-      <div class="comp">${comps}</div></div>`}
+      <div class="comp">${comps}</div></div>
+    ${dial(j.fit_score, (d.gates || []).length > 0)}
+    </div>`}
     ${req.length ? `<div class="card"><h3>Requirements, matched against your resume${d.sections_quality === "unlabelled" ? " (headings not recognised; all bullets shown)" : ""}</h3>${bulletList(req)}</div>` : ""}
     ${pref.length ? `<div class="card"><h3>Preferred</h3>${bulletList(pref)}</div>` : ""}
     ${other.map(s => `<div class="card"><h3>${esc(s.heading || "Other")}</h3><ul class="plain">${s.bullets.map(b => `<li>${esc(b)}</li>`).join("")}</ul></div>`).join("")}
@@ -224,6 +272,35 @@ async function mark(label) {
   select(next ? next.id : id);
 }
 
+async function annotate(id, body) {
+  const r = await api(`/api/jobs/${id}/annotate`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const j = jobs.find(x => x.id === id);
+  if (j) { j.favorite = r.favorite; j.applied = !!r.applied_at; j.has_notes = !!r.notes; }
+  renderList(jobs.length);
+  loadSummary();
+  if (id === selected && (body.favorite != null || body.applied != null)) select(id);
+  return r;
+}
+function toggle(kind) {
+  if (selected == null) return;
+  const j = jobs.find(x => x.id === selected);
+  if (!j) return;
+  annotate(selected, kind === "favorite" ? {favorite: !j.favorite} : {applied: !j.applied});
+}
+let notesTimer, notesFor;
+function notesChanged() {
+  const id = selected, text = $("notes").value;
+  $("notes-saved").textContent = "…";
+  clearTimeout(notesTimer);
+  notesTimer = setTimeout(async () => {
+    try {
+      await annotate(id, {notes: text});
+      if (selected === id) $("notes-saved").textContent = "Saved " + new Date().toLocaleTimeString();
+    } catch (e) {
+      if (selected === id) $("notes-saved").textContent = "Not saved: " + e.message.slice(0, 120) + " (is the server up to date? restart `jobagent ui`)";
+    }
+  }, 600);
+}
 function move(step) {
   const i = jobs.findIndex(j => j.id === selected), n = jobs[i + step];
   if (n) select(n.id);
@@ -252,9 +329,17 @@ $("dups").addEventListener("click", async e => {
   card.remove(); loadSummary(); if (b.dataset.decision === "same") loadJobs(true);
 });
 $("list").addEventListener("click", e => { const r = e.target.closest(".row"); if (r) select(+r.dataset.id); });
-$("detail").addEventListener("click", e => { const b = e.target.closest("button[data-label]"); if (b) mark(b.dataset.label); });
+$("detail").addEventListener("click", e => {
+  const b = e.target.closest("button[data-label]"); if (b) return mark(b.dataset.label);
+  const a = e.target.closest("button[data-annotate]"); if (a) toggle(a.dataset.annotate);
+});
+$("detail").addEventListener("input", e => { if (e.target.id === "notes") notesChanged(); });
+$("list").addEventListener("click", e => {
+  const h = e.target.closest("button[data-fav]");
+  if (h) { e.stopPropagation(); const j = jobs.find(x => x.id === +h.dataset.fav); annotate(j.id, {favorite: !j.favorite}); }
+}, true);
 let timer;
-for (const id of ["q", "company", "label", "posted", "min_score", "sort", "scope"])
+for (const id of ["q", "company", "label", "flag", "posted", "min_score", "sort", "scope"])
   $(id).addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => loadJobs(false), 250); });
 document.addEventListener("keydown", e => {
   if (e.target.matches("input, select, textarea") || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -264,6 +349,8 @@ document.addEventListener("keydown", e => {
   else if (k === "i") mark("interested");
   else if (k === "x") mark("not_interested");
   else if (k === "u") mark("clear");
+  else if (k === "f") toggle("favorite");
+  else if (k === "a") toggle("applied");
 });
 loadSummary().then(() => loadJobs(false)).catch(e => { $("detail").innerHTML = `<div class="empty">Could not load jobs: ${esc(e.message)}</div>`; });
 </script>

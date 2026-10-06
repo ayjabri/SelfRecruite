@@ -11,6 +11,7 @@ import argparse
 import json
 import logging
 import sys
+from pathlib import Path
 
 from jobagent.tools import TOOLS
 
@@ -45,7 +46,9 @@ def main(argv: list[str] | None = None) -> int:
     if args["cmd"] == "ui":
         import uvicorn
         print(f"Job review: http://{args['host']}:{args['port']}  (Ctrl-C to stop)")
-        uvicorn.run("jobagent.web.app:app", host=args["host"], port=args["port"], log_level="warning")
+        # reload=True restarts the server when the Python code changes, so updates take effect
+        uvicorn.run("jobagent.web.app:app", host=args["host"], port=args["port"], log_level="warning",
+                    reload=True, reload_dirs=[str(Path(__file__).parent / "web")])
         return 0
     if args["cmd"] == "pipeline":
         from jobagent.agents.graph import run_pipeline

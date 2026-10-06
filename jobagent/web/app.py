@@ -12,7 +12,7 @@ from jobagent.db import session
 from jobagent.models import Company, Job, JobSource, PossibleDuplicate, RawPosting
 from jobagent.tools.dedup import DecideDuplicateInput, decide_duplicate
 from jobagent.tools.common import NORMALIZERS
-from jobagent.tools.scoring import LabelJobInput, in_scope, label_job
+from jobagent.tools.scoring import AnnotateJobInput, LabelJobInput, annotate_job, in_scope, label_job
 
 app = FastAPI(title="jobagent review")
 INDEX = Path(__file__).with_name("index.html")
@@ -39,6 +39,7 @@ def _location_text(locations) -> str:
 def list_jobs(
     q: str = "", company: str = "", min_score: int = 0,
     label: Literal["all", "unlabelled", "interested", "not_interested"] = "all",
+    flag: Literal["any", "favorite", "applied", "not_applied"] = "any",
     scope: Literal["in_scope", "all"] = "in_scope",
     posted: Literal["any", "24h", "7d", "30d"] = "any",
     sort: Literal["score", "newest"] = "score", limit: int = 300,
@@ -57,6 +58,12 @@ def list_jobs(
             # the source's own posting date when it gives one, else when we first saw the job
             since = datetime.now(timezone.utc) - timedelta(**{"24h": {"hours": 24}, "7d": {"days": 7}, "30d": {"days": 30}}[posted])
             query = query.where(func.coalesce(Job.source_posted_at, Job.first_seen_at) >= since)
+        if flag == "favorite":
+            query = query.where(Job.favorite)
+        elif flag == "applied":
+            query = query.where(Job.applied_at.is_not(None))
+        elif flag == "not_applied":
+            query = query.where(Job.applied_at.is_(None))
         if label == "unlabelled":
             query = query.where(Job.user_label.is_(None))
         elif label != "all":
@@ -70,6 +77,7 @@ def list_jobs(
             "workplace": j.workplace_type, "seniority": j.seniority, "fit_score": j.fit_score,
             "gated": bool((j.fit_details or {}).get("gates")), "label": j.user_label,
             "posted": (j.source_posted_at or j.first_seen_at).date().isoformat(),
+            "favorite": j.favorite, "applied": j.applied_at is not None, "has_notes": bool(j.notes),
             "comp_min": float(j.comp_min) if j.comp_min is not None else None,
             "comp_max": float(j.comp_max) if j.comp_max is not None else None,
             "comp_period": j.comp_period,
@@ -98,6 +106,7 @@ def get_job(job_id: int):
                           "location": (NORMALIZERS[p.source](p.payload).location_text if p.source in NORMALIZERS else "")}
                          for p in postings],
             "id": j.id, "title": j.title, "company": name, "url": j.apply_url,
+            "requisition_id": j.requisition_id,
             "location": _location_text(j.locations), "workplace": j.workplace_type, "seniority": j.seniority,
             "posted": j.source_posted_at.date().isoformat() if j.source_posted_at else None,
             "first_seen": j.first_seen_at.date().isoformat(),
@@ -107,6 +116,8 @@ def get_job(job_id: int):
             "min_years": parsed.get("min_years_experience"), "education": parsed.get("education"),
             "employment_type": parsed.get("employment_type"), "visa": parsed.get("visa_sponsorship"),
             "fit_score": j.fit_score, "fit_details": j.fit_details, "label": j.user_label,
+            "favorite": j.favorite, "applied_at": j.applied_at.date().isoformat() if j.applied_at else None,
+            "notes": j.notes or "",
             "sections": parsed.get("sections") or [], "description": j.description_text,
         }
 
@@ -118,6 +129,20 @@ class LabelBody(BaseModel):
 @app.post("/api/jobs/{job_id}/label")
 def set_label(job_id: int, body: LabelBody):
     result = label_job(LabelJobInput(job_id=job_id, label=body.label))
+    if result.error:
+        raise HTTPException(404, result.error)
+    return result
+
+
+class AnnotateBody(BaseModel):
+    favorite: bool | None = None
+    applied: bool | None = None
+    notes: str | None = None
+
+
+@app.post("/api/jobs/{job_id}/annotate")
+def set_annotations(job_id: int, body: AnnotateBody):
+    result = annotate_job(AnnotateJobInput(job_id=job_id, **body.model_dump()))
     if result.error:
         raise HTTPException(404, result.error)
     return result
@@ -160,13 +185,16 @@ def resolve_duplicate(pair_id: int, body: DecisionBody):
 def summary():
     with session() as s:
         pending = s.scalar(select(func.count()).select_from(PossibleDuplicate).where(PossibleDuplicate.status == "pending"))
-        scoped = select(Job.id, Job.user_label, Job.company_id).where(in_scope(), Job.duplicate_of.is_(None)).subquery()
+        scoped = select(Job.id, Job.user_label, Job.company_id, Job.favorite, Job.applied_at).where(
+            in_scope(), Job.duplicate_of.is_(None)).subquery()
         counts = dict(s.execute(select(scoped.c.user_label, func.count()).group_by(scoped.c.user_label)).all())
+        favorites = s.scalar(select(func.count()).select_from(scoped).where(scoped.c.favorite))
+        applied = s.scalar(select(func.count()).select_from(scoped).where(scoped.c.applied_at.is_not(None)))
         companies = s.scalars(
             select(Company.name).where(Company.id.in_(select(scoped.c.company_id))).order_by(Company.name)
         ).all()
         return {
             "in_scope": sum(counts.values()), "interested": counts.get("interested", 0),
             "not_interested": counts.get("not_interested", 0), "companies": companies,
-            "pending_duplicates": pending,
+            "pending_duplicates": pending, "favorites": favorites, "applied": applied,
         }
