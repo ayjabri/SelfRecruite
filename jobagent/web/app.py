@@ -319,6 +319,17 @@ def _location_text(locations) -> str:
     return " · ".join(parts[:4]) + (f" +{len(parts) - 4}" if len(parts) > 4 else "")
 
 
+def _posting_html(postings) -> str:
+    """The first posting's own HTML, sanitised for display; empty when a source gives only text."""
+    from jobagent.parse.html import sanitize_html
+    for p in postings:
+        if p.source in NORMALIZERS:
+            html = NORMALIZERS[p.source](p.payload).description_html
+            if html and html.strip():
+                return sanitize_html(html)
+    return ""
+
+
 def _mine(uid: int):
     """Join condition for the current user's row on a job (may be absent)."""
     return (UserJob.job_id == Job.id) & (UserJob.user_id == uid)
@@ -425,6 +436,7 @@ def get_job(job_id: int):
             "match_details": u.match_details if u else None,
             "scored_at": u.scored_at.date().isoformat() if u and u.scored_at else None,
             "sections": parsed.get("sections") or [], "description": j.description_text,
+            "description_html": _posting_html(postings),
             "skills": skill_gap(j.description_text or "", uid),
         }
 

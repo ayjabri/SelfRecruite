@@ -207,3 +207,5 @@
   .md table { border-collapse: collapse; margin: 6px 0; font-size: 13px; } .md th, .md td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
   .md hr { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
   .md a { color: var(--accent); }
+  .md p:empty { display: none; }
+  .md strong, .md b { font-weight: 700; }
