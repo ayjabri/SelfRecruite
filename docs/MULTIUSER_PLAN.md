@@ -1,6 +1,6 @@
 # Multi-user plan — Self Recruiter (AI) as a platform
 
-Date: Oct 6, 2026. Status: **approved Oct 6, 2026. Phases 1-3 done (Oct 6); Phase 4 (UI: onboarding, admin tab) next.**
+Date: Oct 6, 2026. Status: **approved Oct 6, 2026. Phases 1-4 done (Oct 6); Phase 5 (hardening) next.**
 
 ## Goal
 
@@ -171,6 +171,20 @@ Config files keep one job: **defaults for a new profile** (`config/*.yaml` → t
 - CLI: `jobagent users`, `jobagent passwd --user N [--email E]` to claim the admin account (user 1).
 - Not built yet: password reset by email (needs SMTP), Google sign-in, delete-account (Phase 5).
 
+## Phase 4 as built (Oct 6, 2026)
+
+- The page is split into `jobagent/web/static/` (style.css, app.js, tracker.js, run.js,
+  settings.js, onboarding.js, admin.js, boot.js) served under `/static`; still no build step.
+- Onboarding wizard (`onboarding.js`) opens when the signed-in user has no resume, and from
+  Settings → "Set up again…": resume → role families and target level → states and remote →
+  skills review (resume-detected, untick to not claim; tick extras from the catalogue) → saves
+  scope, targets (family weights, seniority curve, state gate) and skills, then queues
+  "score my jobs". Endpoint `GET /api/skills` feeds it.
+- Admin tab (`admin.js`, admins only): shared-pool counts, accounts with role / status controls
+  (`POST /api/users/{id}`; cannot demote or disable yourself; disabling signs the user out
+  everywhere), the queue, and recent stage runs by day (`GET /api/admin/overview`).
+- Not built: a public landing page (the sign-in page serves), PDF/DOCX resumes (decision 5).
+
 ## Order and effort
 
 | Phase | Depends on | Rough size |
@@ -178,7 +192,7 @@ Config files keep one job: **defaults for a new profile** (`config/*.yaml` → t
 | 1 Data model split + migration | — | done |
 | 2 Per-user tools, two pipelines, worker | 1 | done |
 | 3 Auth | 1 | done |
-| 4 UI (onboarding, login, split files, admin) | 2, 3 | 2–3 sessions |
+| 4 UI (onboarding, login, split files, admin) | 2, 3 | done |
 | 5 Hardening | 3, 4 | 1 session |
 
 Phases 1–3 can be built and tested from the CLI with user 1 before any UI changes, so the

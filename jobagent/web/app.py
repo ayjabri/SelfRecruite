@@ -13,13 +13,14 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 
 from jobagent import auth
 from jobagent.config import ROOT
 from jobagent.db import session
-from jobagent.models import Company, Job, JobSource, PossibleDuplicate, RawPosting, User, UserJob
+from jobagent.models import Company, Job, JobSource, PossibleDuplicate, RawPosting, Resume, Run, Session, User, UserJob
 from jobagent.skills import skill_gap
 from jobagent.tools import TOOLS
 from jobagent.tools.common import NORMALIZERS
@@ -35,6 +36,7 @@ runs.recover()
 _request_user: contextvars.ContextVar[User | None] = contextvars.ContextVar("user", default=None)
 _request_csrf: contextvars.ContextVar[str | None] = contextvars.ContextVar("csrf", default=None)
 PUBLIC = ("/login", "/logo.png", "/api/auth/status", "/api/auth/login", "/api/auth/register")
+app.mount("/static", StaticFiles(directory=str(Path(__file__).with_name("static"))), name="static")
 
 
 @app.middleware("http")
@@ -45,7 +47,7 @@ async def sign_in_gate(request: Request, call_next):
     _request_user.set(user)
     _request_csrf.set(csrf)
     path = request.url.path
-    if user is None and path not in PUBLIC:
+    if user is None and path not in PUBLIC and not path.startswith("/static/"):
         if path.startswith("/api/"):
             return JSONResponse({"detail": "sign in first"}, status_code=401)
         return RedirectResponse("/login", status_code=303)
@@ -156,9 +158,71 @@ def change_password(body: PasswordChange, request: Request):
 def list_users():
     require_admin()
     with session() as s:
+        marks = dict(s.execute(select(UserJob.user_id, func.count()).where(UserJob.user_label.is_not(None)).group_by(UserJob.user_id)).all())
+        scoped = dict(s.execute(select(UserJob.user_id, func.count()).where(UserJob.in_scope).group_by(UserJob.user_id)).all())
+        resumes = dict(s.execute(select(Resume.user_id, func.count()).where(Resume.active).group_by(Resume.user_id)).all())
         return [{"id": u.id, "email": u.email, "name": u.name, "role": u.role, "status": u.status,
-                 "created_at": u.created_at.date().isoformat(), "has_password": bool(u.password_hash)}
+                 "created_at": u.created_at.date().isoformat(), "has_password": bool(u.password_hash),
+                 "has_resume": bool(resumes.get(u.id)), "in_scope": scoped.get(u.id, 0), "marks": marks.get(u.id, 0)}
                 for u in s.scalars(select(User).order_by(User.id))]
+
+
+class UserPatch(BaseModel):
+    role: Literal["admin", "member"] | None = None
+    status: Literal["active", "disabled"] | None = None
+
+
+@app.post("/api/users/{user_id}")
+def patch_user(user_id: int, body: UserPatch):
+    admin = require_admin()
+    if user_id == admin.id and (body.role == "member" or body.status == "disabled"):
+        raise HTTPException(400, "you cannot demote or disable your own account")
+    with session() as s, s.begin():
+        user = s.get(User, user_id)
+        if user is None:
+            raise HTTPException(404, "no such user")
+        if body.role:
+            user.role = body.role
+        if body.status:
+            user.status = body.status
+            if body.status == "disabled":
+                s.execute(delete(Session).where(Session.user_id == user_id))
+        return {"id": user.id, "role": user.role, "status": user.status}
+
+
+@app.get("/api/admin/overview")
+def admin_overview():
+    """What the admin tab shows: recent stage runs by day, the queue, counts of the shared pool."""
+    require_admin()
+    with session() as s:
+        recent = s.execute(select(Run).order_by(Run.id.desc()).limit(60)).scalars().all()
+        pool = {
+            "postings": s.scalar(select(func.count()).select_from(RawPosting)),
+            "postings_kept": s.scalar(select(func.count()).select_from(RawPosting).where(RawPosting.filter_status == "kept")),
+            "jobs": s.scalar(select(func.count()).select_from(Job).where(Job.duplicate_of.is_(None))),
+            "jobs_embedded": s.scalar(select(func.count()).select_from(Job).where(Job.duplicate_of.is_(None), Job.embedding.is_not(None))),
+            "companies": s.scalar(select(func.count()).select_from(Company)),
+            "users": s.scalar(select(func.count()).select_from(User).where(User.status == "active")),
+        }
+    return {
+        "pool": pool,
+        "stage_runs": [{"id": r.id, "date": str(r.run_date), "stage": r.stage, "user_id": r.user_id, "status": r.status,
+                        "started_at": r.started_at.isoformat(timespec="seconds") if r.started_at else None,
+                        "seconds": round((r.finished_at - r.started_at).total_seconds()) if r.started_at and r.finished_at else None,
+                        "error": r.error} for r in recent],
+        "queue": runs.active(),
+    }
+
+
+@app.get("/api/skills")
+def skills_overview():
+    """For onboarding: skills the resume mentions, the catalogue, and the profile's own lists."""
+    from jobagent.skills import load_catalogue, my_skills
+    from jobagent.users import get_profile
+    uid = current_user()
+    profile = get_profile(uid)["skills"]
+    return {"detected": sorted(my_skills(uid)), "catalogue": list(load_catalogue()["skills"]),
+            "have": profile.get("have") or [], "not_have": profile.get("not_have") or []}
 
 
 LOGO_SOURCE = ROOT / "docs" / "phoenix1.png"

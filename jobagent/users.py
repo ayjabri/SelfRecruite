@@ -26,13 +26,14 @@ def profile_defaults() -> dict:
     """A new profile starts from the config/*.yaml templates."""
     s = get_settings()
     load = lambda p: (yaml.safe_load(p.read_text()) if p.exists() else None) or {}  # noqa: E731
-    filters, targets, skills = load(s.filters_file), load(s.targets_file), load(ROOT / "config" / "skills.yaml")
+    filters, targets = load(s.filters_file), load(s.targets_file)
     return {
         "targets": {k: v for k, v in targets.items() if k != "bank_title_companies"},
         "scope": {"title": filters.get("title") or {},
                   "location": {"allowed_states": (filters.get("location") or {}).get("allowed_states") or [],
                                "remote_ok": True}},
-        "skills": {"have": skills.get("have") or [], "not_have": skills.get("not_have") or []},
+        # the catalogue is shared; which skills someone has is theirs alone, so a new profile claims none
+        "skills": {"have": [], "not_have": []},
         "llm": {"judge_budget_per_day": 20},
     }
 
