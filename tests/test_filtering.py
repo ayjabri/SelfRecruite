@@ -7,7 +7,7 @@ from jobagent.tools.geo import classify_location, phrase_regex
 CFG = {
     "include": phrase_regex(["treasury", "ai", "product manager"]),
     "exclude": phrase_regex(["intern", "sales"]),
-    "us_only": True, "extra_us": (), "extra_non_us": (),
+    "countries": ("US",), "extra_us": (), "extra_non_us": (),
 }
 
 

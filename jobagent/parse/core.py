@@ -8,7 +8,7 @@ from jobagent.extract.core import derive_seniority
 from jobagent.extract.schema import Location
 from jobagent.parse.schema import ParsedJob, Section
 from jobagent.tools.common import NormalizedPosting
-from jobagent.tools.geo import STATES, classify_location
+from jobagent.tools.geo import STATES, classify_location, country_code
 
 # --- sections -----------------------------------------------------------------------------
 
@@ -234,6 +234,8 @@ def parse_locations(location_text: str) -> list[Location]:
                 rest = [re.sub(r"\s+", " ", cleaned).strip(" ,")] if cleaned.strip(" ,") else []
         if where != "us" and len(rest) > 1:
             country = rest.pop()
+        if where != "us":  # "Seoul, South Korea" -> KR; a lone "Paris" -> FR; keep the name if unknown
+            country = country_code(country) or country_code(rest[0] if rest else None) or country
         if rest and not re.search(r"\bremote\b", rest[0], re.I):
             city = rest[0]
         if city or state or country:

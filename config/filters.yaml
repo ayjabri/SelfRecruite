@@ -123,7 +123,7 @@ title:
     - research scientist
 
 location:
-  us_only: true      # drop postings clearly outside the US; unclear locations are kept
+  countries: [US]    # ISO codes the platform covers; postings clearly elsewhere are dropped, unclear ones kept
   extra_us: [New Jersey, New York, Jersey City, NYC, NJ]       # extra place names to treat as US, e.g. [Plano, Jersey City]
   extra_non_us: []   # extra place names to treat as non-US
   # keep only postings in these states; remote postings and postings whose state cannot be

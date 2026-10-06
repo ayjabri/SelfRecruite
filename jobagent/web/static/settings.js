@@ -5,7 +5,8 @@ const CONFIG_FORMS = {
     {path: "title.include", type: "list", label: "Keep titles containing", help: "one phrase per line"},
     {path: "title.exclude", type: "list", label: "Drop titles containing", help: "one phrase per line"},
     {section: "Location"},
-    {path: "location.allowed_states", type: "tags", label: "Allowed states", help: "state codes, comma-separated. Empty = anywhere in the US"},
+    {path: "location.countries", type: "tags", label: "Countries", help: "ISO codes; empty = the countries the platform covers"},
+    {path: "location.allowed_states", type: "tags", label: "Allowed US states", help: "state codes, comma-separated. Empty = anywhere"},
     {path: "location.remote_ok", type: "bool", label: "Remote jobs count", help: "keep remote jobs wherever they are based"},
   ],
   targets: [
@@ -45,7 +46,7 @@ const CONFIG_FORMS = {
   ],
   filters_template: [
     {section: "Crawl location rules", help: "applied to every posting before it is parsed, for all users"},
-    {path: "location.us_only", type: "bool", label: "US only", help: "drop postings clearly outside the US; unclear locations are kept"},
+    {path: "location.countries", type: "tags", label: "Countries covered", help: "ISO codes, e.g. US, CA, GB. Postings clearly elsewhere are dropped for everyone; unclear locations are kept. Empty = no country filter"},
     {path: "location.allowed_states", type: "tags", label: "Crawl states", help: "the crawl keeps postings in these states, remote ones, and unreadable locations. Empty = whole US"},
     {path: "location.extra_us", type: "tags", label: "Extra US place names"},
     {path: "location.extra_non_us", type: "tags", label: "Extra non-US place names"},

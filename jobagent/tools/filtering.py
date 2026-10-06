@@ -11,7 +11,7 @@ from jobagent.config import get_settings
 from jobagent.db import session
 from jobagent.models import RawPosting
 from jobagent.tools.common import NORMALIZERS, NormalizedPosting
-from jobagent.tools.geo import classify_location, phrase_regex
+from jobagent.tools.geo import allowed_by_country, phrase_regex
 from jobagent.tools.registry import tool_spec
 
 KEPT, FILTERED = "kept", "filtered"
@@ -46,10 +46,13 @@ def load_filters() -> dict:
     states = _profile_states()
     if states is None:
         states = tuple(str(s).upper() for s in location.get("allowed_states") or ())
+    countries = location.get("countries")
+    if countries is None:  # older files: us_only -> [US]
+        countries = ["US"] if location.get("us_only", True) else []
     return {
         "include": None,
         "exclude": None,
-        "us_only": bool(location.get("us_only", True)),
+        "countries": tuple(str(c).upper() for c in countries),
         "extra_us": tuple(location.get("extra_us") or ()),
         "extra_non_us": tuple(location.get("extra_non_us") or ()),
         "allowed_states": states,
@@ -73,10 +76,11 @@ def evaluate(posting: NormalizedPosting, cfg: dict | None = None) -> tuple[bool,
         return False, f"excluded title keyword: {m.group(0).lower()}"
     if cfg.get("include") and not cfg["include"].search(posting.title):
         return False, "no target title keyword"
-    if cfg["us_only"]:
-        where, place = classify_location(posting.location_text, cfg["extra_us"], cfg["extra_non_us"])
-        if where == "non_us":
-            return False, f"outside US: {place}"
+    countries = set(cfg.get("countries") or ())
+    if countries:
+        ok, place = allowed_by_country(posting.location_text, countries, cfg["extra_us"], cfg["extra_non_us"])
+        if not ok:
+            return False, f"outside {'/'.join(sorted(countries))}: {place}"
     allowed = set(cfg.get("allowed_states") or ())
     if allowed and not _REMOTE.search(posting.location_text or ""):
         states = location_states(posting.location_text)
@@ -108,7 +112,7 @@ class FilterResult(BaseModel):
 @tool_spec(
     name="filter_pending_postings",
     description=(
-        "Apply the crawl's location pre-filter (US only, and the states any user allows) to stored postings "
+        "Apply the crawl's location pre-filter (the countries the platform covers, and the states any user allows) to stored postings "
         "that have not been checked yet. Kept postings go on to parsing; filtered ones stay stored but are "
         "skipped. Titles are not filtered here: each user's title keywords are applied in their own scope. "
         "No LLM is used. Returns counts, the reasons for filtering, and a few sample titles."

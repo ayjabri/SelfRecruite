@@ -60,7 +60,7 @@ def test_locations():
     locs = [(x.city, x.state, x.country) for x in parse_locations("San Francisco, CA | New York City, NY")]
     assert locs == [("San Francisco", "CA", "US"), ("New York City", "NY", "US")]
     assert [(x.city, x.state, x.country) for x in parse_locations("US, CA, Santa Clara")] == [("Santa Clara", "CA", "US")]
-    assert [(x.city, x.state, x.country) for x in parse_locations("Tokyo, Japan")] == [("Tokyo", None, "Japan")]
+    assert [(x.city, x.state, x.country) for x in parse_locations("Tokyo, Japan")] == [("Tokyo", None, "JP")]
     assert [(x.city, x.state, x.country) for x in parse_locations("Charlotte, NC, United States")] == [("Charlotte", "NC", "US")]
     # Citi's Workday format has no commas
     assert [(x.city, x.state) for x in parse_locations("Tampa Florida United States; Getzville New York United States")] == [("Tampa", "FL"), ("Getzville", "NY")]

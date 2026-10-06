@@ -33,7 +33,7 @@ FILES = {
     "companies": {"title": "Companies", "description": "Which employers the shared crawl pulls from.", "after": None},
     "skill_catalogue": {"title": "Skill catalogue", "description": "The technical skills looked for in postings, with the phrases that mean them.",
                         "after": None},
-    "filters_template": {"title": "Crawl pre-filter", "description": "Location rules for the crawl, and the title keywords a new profile starts from.",
+    "filters_template": {"title": "Crawl coverage", "description": "Which countries and states the platform covers, and the title keywords a new profile starts from.",
                          "after": {"tool": "filter_pending_postings", "args": {"recheck": True},
                                    "note": "Re-check every stored posting against the new rules"}},
     "targets_template": {"title": "Scoring template", "description": "The scoring settings a new profile starts from.", "after": None},

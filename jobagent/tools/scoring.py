@@ -20,7 +20,8 @@ from jobagent.models import Company, GoldenChunk, Job, JobSource, RawPosting, Us
 from jobagent.parse.schema import ParsedJob
 from jobagent.tools.embeddings import QUERY, embed_texts
 from jobagent.tools.filtering import KEPT
-from jobagent.tools.geo import phrase_regex
+from jobagent.tools.filtering import load_filters
+from jobagent.tools.geo import country_code, phrase_regex
 from jobagent.tools.preference import example_from, load_model
 from jobagent.tools.registry import tool_spec
 from jobagent.users import get_profile, resolve_user, user_job
@@ -57,6 +58,10 @@ def job_in_scope(title: str, locations: list | None, workplace_type: str | None,
         return False, f"excluded title keyword: {m.group(0).lower()}"
     if include and not include.search(title):
         return False, "no target title keyword"
+    countries = {str(c).upper() for c in (loc_cfg.get("countries") if loc_cfg.get("countries") is not None else load_filters()["countries"])}
+    known = {country_code(loc.get("country")) or loc.get("country") for loc in locations or [] if loc.get("country")}
+    if countries and known and not (known & countries):
+        return False, f"outside {'/'.join(sorted(countries))}: {', '.join(sorted(known))}"
     allowed = {str(s).upper() for s in loc_cfg.get("allowed_states") or []}
     if allowed:
         remote = workplace_type == "remote" or any(_REMOTE.search(loc.get("city") or "") for loc in locations or [])
