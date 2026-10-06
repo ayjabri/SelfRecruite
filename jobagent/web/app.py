@@ -138,7 +138,7 @@ def index() -> str:
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page() -> str:
-    return LOGIN.read_text()
+    return _page(LOGIN)
 
 
 # --- auth ------------------------------------------------------------------------------------
