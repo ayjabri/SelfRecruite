@@ -270,12 +270,17 @@ async function loadResumeCard(id) {
     const r = await api("/api/resumes/" + id);
     rcard = {id: r.id, text: r.text, filename: r.filename || `resume-${r.id}.md`, active: r.active};
     box.innerHTML = `<div class="resumehead"><span class="name" id="resume-name">${esc(rcard.filename)}${r.active ? ' <span class="tag">scoring</span>' : ""}</span><input type="text" id="resume-rename" hidden>
-        <button id="resume-renamebtn" title="Rename">Rename</button><button id="resume-discard" disabled>Discard</button><button class="save" id="resume-save" disabled>Save</button>
+        <button id="resume-renamebtn" title="Rename">Rename</button><button id="resume-edit">Edit</button><button id="resume-discard" hidden>Discard</button><button class="save" id="resume-save" hidden disabled>Save</button>
         <a href="/api/resumes/${r.id}?download=true" title="Download .md" style="color:var(--accent)">⬇</a></div>
-      <div class="cfgmsg" id="resume-msg"></div><textarea id="resume-text" spellcheck="false">${esc(r.text)}</textarea>`;
+      <div class="cfgmsg" id="resume-msg"></div><div class="md" id="resume-view">${renderMarkdown(r.text)}</div><textarea id="resume-text" spellcheck="false" hidden>${esc(r.text)}</textarea>`;
   } catch (e) { box.innerHTML = `<div class="sub">Could not load the resume: ${esc(e.message)}</div>`; }
 }
-function resumeDirty(dirty) { $("resume-save").disabled = $("resume-discard").disabled = !dirty; }
+function resumeDirty(dirty) { $("resume-save").disabled = !dirty; }
+function resumeMode(edit) {  // preview by default; the editor only when asked
+  $("resume-view").hidden = edit; $("resume-text").hidden = !edit;
+  $("resume-edit").hidden = edit; $("resume-save").hidden = $("resume-discard").hidden = !edit;
+  if (edit) $("resume-text").focus();
+}
 async function saveResumeCard() {
   const msg = $("resume-msg"); msg.className = "cfgmsg"; msg.textContent = "Saving…";
   const body = {text: $("resume-text").value};
@@ -285,13 +290,15 @@ async function saveResumeCard() {
     rcard.text = body.text; if (body.filename) rcard.filename = body.filename.endsWith(".md") ? body.filename : body.filename + ".md";
     $("resume-name").innerHTML = esc(rcard.filename) + (r.active ? ' <span class="tag">scoring</span>' : ""); $("resume-rename").hidden = true; $("resume-name").hidden = false;
     msg.className = "cfgmsg ok"; msg.textContent = "Saved" + (r.active && r.chunks ? `; re-indexed into ${r.chunks} sections` : "") + ".";
-    resumeDirty(false); await loadMyResumes(); renderList(jobs.length);
+    $("resume-view").innerHTML = renderMarkdown(rcard.text); resumeDirty(false); resumeMode(false);
+    await loadMyResumes(); renderList(jobs.length);
   } catch (e) { msg.className = "cfgmsg err"; msg.textContent = "Not saved: " + e.message.replace(/^.*"detail":"?/, "").replace(/"?}$/, ""); }
 }
 function scrollToResume() { $("resume-card")?.scrollIntoView({behavior: "smooth", block: "start"}); }
 $("detail").addEventListener("click", e => {
   if (e.target.id === "resume-save") saveResumeCard();
-  else if (e.target.id === "resume-discard") { $("resume-text").value = rcard.text; $("resume-rename").hidden = true; $("resume-name").hidden = false; resumeDirty(false); $("resume-msg").textContent = ""; }
-  else if (e.target.id === "resume-renamebtn") { $("resume-rename").value = rcard.filename; $("resume-rename").hidden = false; $("resume-name").hidden = true; $("resume-rename").focus(); resumeDirty(true); }
+  else if (e.target.id === "resume-edit") { $("resume-text").value = rcard.text; resumeMode(true); }
+  else if (e.target.id === "resume-discard") { $("resume-text").value = rcard.text; $("resume-rename").hidden = true; $("resume-name").hidden = false; resumeDirty(false); resumeMode(false); $("resume-msg").textContent = ""; }
+  else if (e.target.id === "resume-renamebtn") { $("resume-rename").value = rcard.filename; $("resume-rename").hidden = false; $("resume-name").hidden = true; $("resume-rename").focus(); resumeMode(true); resumeDirty(true); }
 });
 $("detail").addEventListener("input", e => { if (e.target.id === "resume-text" || e.target.id === "resume-rename") resumeDirty(true); });

@@ -198,3 +198,13 @@
   #resume-text { flex: 1; width: 100%; max-height: 70vh; min-height: 300px; font: 13px/1.45 ui-monospace, monospace; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; resize: vertical; }
   @media (max-width: 1100px) { .bottomrow { grid-template-columns: 1fr; } }
   .resumelink { color: var(--accent); cursor: pointer; text-decoration: underline dotted; }
+  .md { flex: 1; overflow: auto; max-height: 70vh; padding: 4px 12px; font-size: 13.5px; line-height: 1.5; }
+  .md h1 { font-size: 20px; margin: 10px 0 4px; } .md h2 { font-size: 16px; margin: 14px 0 4px; border-bottom: 1px solid var(--line); padding-bottom: 2px; }
+  .md h3 { font-size: 14px; margin: 12px 0 4px; } .md h4, .md h5, .md h6 { font-size: 13px; margin: 10px 0 2px; color: var(--muted); }
+  .md p { margin: 6px 0; } .md ul, .md ol { margin: 4px 0; padding-left: 22px; } .md li { margin: 2px 0; }
+  .md blockquote { margin: 6px 0; padding: 4px 10px; border-left: 3px solid var(--line); color: var(--muted); }
+  .md code { font: 12px ui-monospace, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  .md pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; overflow: auto; } .md pre code { border: 0; padding: 0; }
+  .md table { border-collapse: collapse; margin: 6px 0; font-size: 13px; } .md th, .md td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
+  .md hr { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
+  .md a { color: var(--accent); }
