@@ -254,6 +254,10 @@ $("detail").addEventListener("click", e => {
   const a = e.target.closest("button[data-annotate]"); if (a) toggle(a.dataset.annotate);
 });
 $("detail").addEventListener("input", e => { if (e.target.id === "notes") notesChanged(); });
+// the filter bar: any change reloads the list (debounced for typing)
+let filterTimer;
+for (const id of ["q", "company", "label", "flag", "posted", "min_score", "sort", "scope"])
+  $(id).addEventListener("input", () => { clearTimeout(filterTimer); filterTimer = setTimeout(() => loadJobs(false), 250); });
 $("detail").addEventListener("change", e => { if (e.target.id === "applied-resume" && selected != null) annotate(selected, {applied_resume_id: +e.target.value}); });
 $("detail").addEventListener("click", e => {
   if (e.target.id === "apply-upload") return $("apply-file").click();

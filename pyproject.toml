@@ -34,7 +34,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = [
+    "py-mini-racer",
+    "playwright","pytest"]
 anthropic = ["langchain-anthropic"]
 
 [project.scripts]

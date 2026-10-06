@@ -227,19 +227,6 @@ async function savePassword() {
   try { await api("/api/auth/password", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({current: $("pw-old").value, new: $("pw-new").value})}); msg.className = "cfgmsg ok"; msg.textContent = "Password changed."; $("pw-old").value = $("pw-new").value = ""; }
   catch (e) { msg.className = "cfgmsg err"; msg.textContent = e.message.replace(/^.*"detail":"?/, "").replace(/"?}$/, ""); }
 }
-async function saveResume() {
-  const msg = $("cfg-msg"); msg.className = "cfgmsg"; msg.textContent = "Saving and indexing…"; $("resume-save").disabled = true;
-  try {
-    const r = await api("/api/resume", {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text: $("resume-text").value, filename: "resume.md"})});
-    msg.className = "cfgmsg ok";
-    msg.innerHTML = r.unchanged ? "Unchanged." : `Saved and indexed into ${r.chunks} sections. Re-score every job: <button id="cfg-after">Run score_jobs_fast now</button>`;
-    if (!r.unchanged) $("cfg-after").addEventListener("click", async () => {
-      const run = await api("/api/runs", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({command: "run", tool: "score_jobs_fast", args: {rescore: true}})});
-      showTab("run"); watch(run.id);
-    });
-  } catch (e) { msg.className = "cfgmsg err"; msg.textContent = "Not saved: " + e.message.replace(/^.*"detail":"?/, "").replace(/"?}$/, ""); }
-  $("resume-save").disabled = false;
-}
 function collectConfig() {
   const data = JSON.parse(JSON.stringify(configs[cfgName].data));
   for (const el of $("cfgbody").querySelectorAll(".field.cfg")) {
