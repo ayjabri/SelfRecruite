@@ -1,15 +1,15 @@
 """Technical skills: find the ones a posting asks for, and split them into have / missing.
 
-Rule-based (config/skills.yaml), so it runs on every job for free. `my_skills()` is what the
-resume text mentions plus the `have` list in the config, minus `not_have`.
+Rule-based (config/skills.yaml holds the catalogue), so it runs on every job for free.
+`my_skills(user_id)` is what the user's resume mentions plus their profile's `have` list,
+minus `not_have`.
 """
 import re
 from functools import lru_cache
-from pathlib import Path
 
 import yaml
 
-from jobagent.config import ROOT, get_settings
+from jobagent.config import ROOT
 
 SKILLS_FILE = ROOT / "config" / "skills.yaml"
 
@@ -46,16 +46,30 @@ def extract_skills(text: str) -> list[str]:
     return [name for name, rx in cat.items() if rx.search(text)]
 
 
-@lru_cache
-def my_skills() -> frozenset[str]:
-    cat = load_catalogue()
-    path: Path = get_settings().golden_source_file
-    found = set(extract_skills(path.read_text())) if path.exists() else set()
-    return frozenset((found | cat["have"]) - cat["not_have"])
+@lru_cache(maxsize=256)
+def _resume_skills(user_id: int, sha: str | None) -> frozenset[str]:
+    from jobagent.db import session
+    from jobagent.users import active_resume
+    with session() as s:
+        resume = active_resume(s, user_id)
+        text = resume.text if resume else ""
+    return frozenset(extract_skills(text))
 
 
-def skill_gap(text: str) -> dict[str, list[str]]:
+def my_skills(user_id: int | None = None) -> frozenset[str]:
+    from jobagent.db import session
+    from jobagent.users import active_resume, get_profile, resolve_user
+    uid = resolve_user(user_id)
+    skills = get_profile(uid)["skills"]
+    with session() as s:
+        resume = active_resume(s, uid)
+        sha = resume.sha if resume else None
+    found = _resume_skills(uid, sha)
+    return frozenset((found | set(skills.get("have") or [])) - set(skills.get("not_have") or []))
+
+
+def skill_gap(text: str, user_id: int | None = None) -> dict[str, list[str]]:
     """{'matching': [...], 'missing': [...]} for a posting's text."""
-    mine = my_skills()
+    mine = my_skills(user_id)
     wanted = extract_skills(text)
     return {"matching": [s for s in wanted if s in mine], "missing": [s for s in wanted if s not in mine]}

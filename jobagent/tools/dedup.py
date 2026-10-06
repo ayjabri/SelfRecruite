@@ -21,7 +21,7 @@ from rapidfuzz import fuzz
 from sqlalchemy import func, select
 
 from jobagent.db import session
-from jobagent.models import Job, JobSource, PossibleDuplicate, RawPosting
+from jobagent.models import Job, JobSource, PossibleDuplicate, RawPosting, UserJob
 from jobagent.tools.filtering import KEPT
 from jobagent.tools.registry import tool_spec
 
@@ -49,7 +49,6 @@ class _Node:
         self.embedding = row.embedding
         self.locations = row.locations or []
         self.parsed = row.parsed
-        self.label = row.user_label
         self.in_scope = row.in_scope
 
 
@@ -61,16 +60,26 @@ def _find(parent, x):
 
 
 def _merge_into(s, canonical: Job, dup: Job) -> None:
-    """Point `dup` at `canonical`, carrying its locations and your mark across."""
+    """Point `dup` at `canonical`, carrying its locations and every user's marks across."""
     seen = {tuple(sorted((l or {}).items())) for l in canonical.locations or []}
     extra = [l for l in dup.locations or [] if tuple(sorted((l or {}).items())) not in seen]
     if extra:
         canonical.locations = [*(canonical.locations or []), *extra]
         if canonical.parsed:
             canonical.parsed = {**canonical.parsed, "locations": canonical.locations}
-        canonical.fit_score = None  # new locations can change the location gate; re-score
-    if dup.user_label and not canonical.user_label:
-        canonical.user_label, canonical.user_labeled_at = dup.user_label, dup.user_labeled_at
+    for theirs in s.scalars(select(UserJob).where(UserJob.job_id == dup.id)):
+        mine = s.get(UserJob, (theirs.user_id, canonical.id))
+        if mine is None:
+            mine = UserJob(user_id=theirs.user_id, job_id=canonical.id, in_scope=theirs.in_scope)
+            s.add(mine)
+        if theirs.user_label and not mine.user_label:
+            mine.user_label, mine.user_labeled_at = theirs.user_label, theirs.user_labeled_at
+        mine.favorite = mine.favorite or theirs.favorite
+        mine.applied_at = mine.applied_at or theirs.applied_at
+        if theirs.notes and not mine.notes:
+            mine.notes = theirs.notes
+        if extra:
+            mine.fit_score = None  # new locations can change the location gate; re-score
     dup.duplicate_of, dup.status = canonical.id, "duplicate"
 
 
@@ -119,7 +128,7 @@ def dedup_jobs(args: DedupInput) -> DedupResult:
     with session() as s, s.begin():
         rows = s.execute(
             select(Job.id, Job.company_id, Job.title_norm, Job.description_text, Job.embedding,
-                   Job.locations, Job.parsed, Job.user_label, kept.label("in_scope"))
+                   Job.locations, Job.parsed, kept.label("in_scope"))
             .where(Job.duplicate_of.is_(None)).order_by(Job.id)
         ).all()
         decided = {

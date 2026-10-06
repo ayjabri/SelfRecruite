@@ -16,22 +16,22 @@ def scratch(tmp_path, monkeypatch):
 
 
 def test_form_save_keeps_comments_and_values(scratch):
-    before = configs.read("filters")
+    before = configs.read("filters_template")
     data = before["data"]
     data["location"]["allowed_states"] = ["NY", "NJ", "CT"]
     data["title"]["include"].append("zzz test")
     data["title"]["include"].remove("product owner")
-    after = configs.save_data("filters", data)
+    after = configs.save_data("filters_template", data)
     assert after["data"] == data
     assert after["text"].count("#") == before["text"].count("#")      # comments survived
     assert "Variant A" in after["text"]
-    assert configs.backups("filters")                                 # a backup was written
+    assert configs.backups("filters_template")                                 # a backup was written
 
 
 def test_text_save_rejects_bad_yaml(scratch):
     with pytest.raises(Exception):
-        configs.save_text("targets", "weights: [unclosed")
-    assert configs.read("targets")["data"]["weights"]["required"] == 0.45
+        configs.save_text("targets_template", "weights: [unclosed")
+    assert configs.read("targets_template")["data"]["weights"]["required"] == 0.45
 
 
 def test_new_rows_and_unknown_file(scratch):

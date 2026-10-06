@@ -18,13 +18,24 @@ KEPT, FILTERED = "kept", "filtered"
 SAMPLE = 8
 
 
+def _profile_includes() -> list[str]:
+    """Title keywords every active user asked for, so the crawl parses what any of them wants."""
+    try:
+        from jobagent.models import Profile
+        with session() as s:
+            scopes = s.scalars(select(Profile.scope)).all()
+    except Exception:  # noqa: BLE001 - before the migration ran, or no database: templates only
+        return []
+    return [k for scope in scopes for k in ((scope or {}).get("title") or {}).get("include") or []]
+
+
 @lru_cache
 def load_filters() -> dict:
     path = get_settings().filters_file
     cfg = (yaml.safe_load(path.read_text()) if path.exists() else None) or {}
     title, location = cfg.get("title") or {}, cfg.get("location") or {}
     return {
-        "include": phrase_regex(title.get("include") or []),
+        "include": phrase_regex([*(title.get("include") or []), *_profile_includes()]),
         "exclude": phrase_regex(title.get("exclude") or []),
         "us_only": bool(location.get("us_only", True)),
         "extra_us": tuple(location.get("extra_us") or ()),
@@ -90,6 +101,7 @@ class FilterResult(BaseModel):
     ),
 )
 def filter_pending_postings(args: FilterInput) -> FilterResult:
+    load_filters.cache_clear()  # profiles may have changed since this process started
     cfg = load_filters()
     if args.states is not None:
         cfg = {**cfg, "allowed_states": tuple(s.upper() for s in args.states)}

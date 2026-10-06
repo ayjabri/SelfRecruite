@@ -9,6 +9,7 @@ from jobagent.tools.registry import tool_spec
 
 
 class JobSkillsInput(BaseModel):
+    user_id: int | None = Field(None, description="Whose skills to compare with; default: the current user")
     job_id: int = Field(description="jobs.id")
 
 
@@ -28,17 +29,17 @@ def job_skills(args: JobSkillsInput) -> JobSkillsResult:
         text = s.scalar(select(Job.description_text).where(Job.id == args.job_id))
         if text is None:
             return JobSkillsResult(job_id=args.job_id, error="no such job")
-    return JobSkillsResult(job_id=args.job_id, **skill_gap(text))
+    return JobSkillsResult(job_id=args.job_id, **skill_gap(text, args.user_id))
 
 
 class MySkillsInput(BaseModel):
-    pass
+    user_id: int | None = Field(None, description="Default: the current user")
 
 
 class MySkillsResult(BaseModel):
     skills: list[str]
 
 
-@tool_spec(name="my_skills", description="The technical skills the resume and config/skills.yaml say you have.")
+@tool_spec(name="my_skills", description="The technical skills the user's resume and profile say they have.")
 def list_my_skills(args: MySkillsInput) -> MySkillsResult:
-    return MySkillsResult(skills=sorted(my_skills()))
+    return MySkillsResult(skills=sorted(my_skills(args.user_id)))

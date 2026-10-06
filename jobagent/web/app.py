@@ -1,4 +1,8 @@
-"""Local review UI: browse scored jobs and mark the ones you are interested in."""
+"""Review UI: browse scored jobs and mark the ones you are interested in.
+
+Every request acts as one user. Until sign-in exists that is DEFAULT_USER_ID (see jobagent.users);
+`current_user()` is the single place to swap in a session lookup later.
+"""
 import io
 import json
 from datetime import datetime, timedelta, timezone
@@ -13,16 +17,21 @@ from sqlalchemy import func, or_, select
 
 from jobagent.config import ROOT
 from jobagent.db import session
-from jobagent.models import Company, Job, JobSource, PossibleDuplicate, RawPosting
+from jobagent.models import Company, Job, JobSource, PossibleDuplicate, RawPosting, UserJob
 from jobagent.skills import skill_gap
-from jobagent.tools.dedup import DecideDuplicateInput, decide_duplicate
-from jobagent.tools.common import NORMALIZERS
 from jobagent.tools import TOOLS
+from jobagent.tools.common import NORMALIZERS
+from jobagent.tools.dedup import DecideDuplicateInput, decide_duplicate
 from jobagent.tools.scoring import AnnotateJobInput, LabelJobInput, annotate_job, in_scope, label_job
+from jobagent.users import DEFAULT_USER_ID
 from jobagent.web import configs, runs
 
 app = FastAPI(title="jobagent review")
 INDEX = Path(__file__).with_name("index.html")
+
+
+def current_user() -> int:
+    return DEFAULT_USER_ID
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -55,7 +64,7 @@ def _logo_bytes() -> bytes:
 @app.get("/logo.png")
 def logo():
     if not LOGO_SOURCE.exists():
-        raise HTTPException(404, "docs/icon.png not found")
+        raise HTTPException(404, "docs/phoenix1.png not found")
     return Response(_logo_bytes(), media_type="image/png")
 
 
@@ -71,6 +80,11 @@ def _location_text(locations) -> str:
     return " · ".join(parts[:4]) + (f" +{len(parts) - 4}" if len(parts) > 4 else "")
 
 
+def _mine(uid: int):
+    """Join condition for the current user's row on a job (may be absent)."""
+    return (UserJob.job_id == Job.id) & (UserJob.user_id == uid)
+
+
 @app.get("/api/jobs")
 def list_jobs(
     q: str = "", company: str = "", min_score: int = 0,
@@ -80,57 +94,62 @@ def list_jobs(
     posted: Literal["any", "24h", "7d", "30d"] = "any",
     sort: Literal["score", "newest", "match"] = "score", limit: int = 300,
 ):
+    uid = current_user()
     with session() as s:
-        query = select(Job, Company.name).join(Company, Company.id == Job.company_id).where(Job.duplicate_of.is_(None))
+        query = (select(Job, Company.name, UserJob).join(Company, Company.id == Job.company_id)
+                 .outerjoin(UserJob, _mine(uid)).where(Job.duplicate_of.is_(None)))
         if scope == "in_scope":
-            query = query.where(in_scope())
+            query = query.where(in_scope(uid))
         if q:
             query = query.where(or_(Job.title.ilike(f"%{q}%"), Job.description_text.ilike(f"%{q}%")))
         if company:
             query = query.where(Company.name == company)
         if min_score:
-            query = query.where(Job.fit_score >= min_score)
+            query = query.where(UserJob.fit_score >= min_score)
         if posted != "any":
             # the source's own posting date when it gives one, else when we first saw the job
             since = datetime.now(timezone.utc) - timedelta(**{"24h": {"hours": 24}, "7d": {"days": 7}, "30d": {"days": 30}}[posted])
             query = query.where(func.coalesce(Job.source_posted_at, Job.first_seen_at) >= since)
         if flag == "favorite":
-            query = query.where(Job.favorite)
+            query = query.where(UserJob.favorite)
         elif flag == "applied":
-            query = query.where(Job.applied_at.is_not(None))
+            query = query.where(UserJob.applied_at.is_not(None))
         elif flag == "not_applied":
-            query = query.where(Job.applied_at.is_(None))
+            query = query.where(UserJob.applied_at.is_(None))
         if label == "unlabelled":
-            query = query.where(Job.user_label.is_(None))
+            query = query.where(UserJob.user_label.is_(None))
         elif label != "all":
-            query = query.where(Job.user_label == label)
+            query = query.where(UserJob.user_label == label)
         newest = func.coalesce(Job.source_posted_at, Job.first_seen_at).desc()
-        order = {"score": (Job.fit_score.desc().nulls_last(), Job.id), "newest": (newest, Job.id),
-                 "match": (Job.match_score.desc().nulls_last(), Job.fit_score.desc().nulls_last(), Job.id)}[sort]
+        order = {"score": (UserJob.fit_score.desc().nulls_last(), Job.id), "newest": (newest, Job.id),
+                 "match": (UserJob.match_score.desc().nulls_last(), UserJob.fit_score.desc().nulls_last(), Job.id)}[sort]
         total = s.scalar(select(func.count()).select_from(query.subquery()))
         rows = s.execute(query.order_by(*order).limit(min(limit, 1000))).all()
         return {"total": total, "jobs": [{
             "id": j.id, "title": j.title, "company": name, "location": _location_text(j.locations),
-            "workplace": j.workplace_type, "seniority": j.seniority, "fit_score": j.fit_score,
-            "gated": bool((j.fit_details or {}).get("gates")), "label": j.user_label,
+            "workplace": j.workplace_type, "seniority": j.seniority,
+            "fit_score": u.fit_score if u else None,
+            "gated": bool(((u.fit_details if u else None) or {}).get("gates")), "label": u.user_label if u else None,
             "posted": (j.source_posted_at or j.first_seen_at).date().isoformat(),
-            "favorite": j.favorite, "applied": j.applied_at is not None, "has_notes": bool(j.notes),
-            "match_score": j.match_score,
+            "favorite": bool(u and u.favorite), "applied": bool(u and u.applied_at), "has_notes": bool(u and u.notes),
+            "match_score": u.match_score if u else None,
             "comp_min": float(j.comp_min) if j.comp_min is not None else None,
             "comp_max": float(j.comp_max) if j.comp_max is not None else None,
             "comp_period": j.comp_period,
-        } for j, name in rows]}
+        } for j, name, u in rows]}
 
 
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: int):
+    uid = current_user()
     with session() as s:
         row = s.execute(
-            select(Job, Company.name).join(Company, Company.id == Job.company_id).where(Job.id == job_id)
+            select(Job, Company.name, UserJob).join(Company, Company.id == Job.company_id)
+            .outerjoin(UserJob, _mine(uid)).where(Job.id == job_id)
         ).first()
         if row is None:
             raise HTTPException(404, "no such job")
-        j, name = row
+        j, name, u = row
         parsed = j.parsed or {}
         members = [j.id, *s.scalars(select(Job.id).where(Job.duplicate_of == j.id))]
         postings = s.execute(
@@ -153,13 +172,17 @@ def get_job(job_id: int):
             "comp_period": j.comp_period, "comp_text": parsed.get("comp_text"),
             "min_years": parsed.get("min_years_experience"), "education": parsed.get("education"),
             "employment_type": parsed.get("employment_type"), "visa": parsed.get("visa_sponsorship"),
-            "fit_score": j.fit_score, "fit_details": j.fit_details, "label": j.user_label,
-            "favorite": j.favorite, "applied_at": j.applied_at.date().isoformat() if j.applied_at else None,
-            "notes": j.notes or "",
-            "match_score": j.match_score, "match_explanation": j.match_explanation,
-            "match_details": j.match_details, "scored_at": j.scored_at.date().isoformat() if j.scored_at else None,
+            "in_scope": bool(u and u.in_scope),
+            "fit_score": u.fit_score if u else None, "fit_details": u.fit_details if u else None,
+            "label": u.user_label if u else None,
+            "favorite": bool(u and u.favorite),
+            "applied_at": u.applied_at.date().isoformat() if u and u.applied_at else None,
+            "notes": (u.notes if u else None) or "",
+            "match_score": u.match_score if u else None, "match_explanation": u.match_explanation if u else None,
+            "match_details": u.match_details if u else None,
+            "scored_at": u.scored_at.date().isoformat() if u and u.scored_at else None,
             "sections": parsed.get("sections") or [], "description": j.description_text,
-            "skills": skill_gap(j.description_text or ""),
+            "skills": skill_gap(j.description_text or "", uid),
         }
 
 
@@ -169,7 +192,7 @@ class LabelBody(BaseModel):
 
 @app.post("/api/jobs/{job_id}/label")
 def set_label(job_id: int, body: LabelBody):
-    result = label_job(LabelJobInput(job_id=job_id, label=body.label))
+    result = label_job(LabelJobInput(user_id=current_user(), job_id=job_id, label=body.label))
     if result.error:
         raise HTTPException(404, result.error)
     return result
@@ -183,7 +206,7 @@ class AnnotateBody(BaseModel):
 
 @app.post("/api/jobs/{job_id}/annotate")
 def set_annotations(job_id: int, body: AnnotateBody):
-    result = annotate_job(AnnotateJobInput(job_id=job_id, **body.model_dump()))
+    result = annotate_job(AnnotateJobInput(user_id=current_user(), job_id=job_id, **body.model_dump()))
     if result.error:
         raise HTTPException(404, result.error)
     return result
@@ -191,15 +214,19 @@ def set_annotations(job_id: int, body: AnnotateBody):
 
 @app.get("/api/duplicates")
 def list_duplicates():
-    """Pending possible-duplicate pairs, with enough of each job to judge."""
+    """Pending possible-duplicate pairs, with enough of each job (and your marks on it) to judge."""
+    uid = current_user()
     with session() as s:
         A, B = Job.__table__.alias("a"), Job.__table__.alias("b")
+        UA, UB = UserJob.__table__.alias("ua"), UserJob.__table__.alias("ub")
         rows = s.execute(
             select(PossibleDuplicate.id, PossibleDuplicate.similarity, Company.name,
-                   A.c.id, A.c.title, A.c.locations, A.c.fit_score, A.c.user_label,
-                   B.c.id, B.c.title, B.c.locations, B.c.fit_score, B.c.user_label)
+                   A.c.id, A.c.title, A.c.locations, UA.c.fit_score, UA.c.user_label,
+                   B.c.id, B.c.title, B.c.locations, UB.c.fit_score, UB.c.user_label)
             .join(A, A.c.id == PossibleDuplicate.job_a).join(B, B.c.id == PossibleDuplicate.job_b)
             .join(Company, Company.id == A.c.company_id)
+            .outerjoin(UA, (UA.c.job_id == A.c.id) & (UA.c.user_id == uid))
+            .outerjoin(UB, (UB.c.job_id == B.c.id) & (UB.c.user_id == uid))
             .where(PossibleDuplicate.status == "pending", A.c.duplicate_of.is_(None), B.c.duplicate_of.is_(None))
             .order_by(PossibleDuplicate.similarity.desc())
         ).all()
@@ -236,10 +263,15 @@ def resolve_duplicate(pair_id: int, body: DecisionBody):
 
 @app.get("/api/summary")
 def summary():
+    uid = current_user()
     with session() as s:
-        pending = s.scalar(select(func.count()).select_from(PossibleDuplicate).where(PossibleDuplicate.status == "pending"))
-        scoped = select(Job.id, Job.user_label, Job.company_id, Job.favorite, Job.applied_at).where(
-            in_scope(), Job.duplicate_of.is_(None)).subquery()
+        A, B = Job.__table__.alias("a"), Job.__table__.alias("b")
+        pending = s.scalar(  # pairs still open whose jobs were not merged some other way since
+            select(func.count()).select_from(PossibleDuplicate)
+            .join(A, A.c.id == PossibleDuplicate.job_a).join(B, B.c.id == PossibleDuplicate.job_b)
+            .where(PossibleDuplicate.status == "pending", A.c.duplicate_of.is_(None), B.c.duplicate_of.is_(None)))
+        scoped = (select(Job.id, UserJob.user_label, Job.company_id, UserJob.favorite, UserJob.applied_at)
+                  .join(UserJob, _mine(uid)).where(UserJob.in_scope, Job.duplicate_of.is_(None)).subquery())
         counts = dict(s.execute(select(scoped.c.user_label, func.count()).group_by(scoped.c.user_label)).all())
         favorites = s.scalar(select(func.count()).select_from(scoped).where(scoped.c.favorite))
         applied = s.scalar(select(func.count()).select_from(scoped).where(scoped.c.applied_at.is_not(None)))
@@ -264,7 +296,7 @@ def list_tools():
             "name": name, "description": field.description or "",
             "type": _field_type(field.annotation), "default": field.default if field.default is not None else None,
             "required": field.is_required(),
-        } for name, field in spec.input_model.model_fields.items()],
+        } for name, field in spec.input_model.model_fields.items() if name != "user_id"],
     } for spec in TOOLS.values()]
 
 
@@ -294,9 +326,11 @@ def start_run(body: RunBody):
     else:
         if body.tool not in TOOLS:
             raise HTTPException(400, "unknown tool")
-        clean = {k: v for k, v in body.args.items() if v not in (None, "", [])}
+        clean = {k: v for k, v in body.args.items() if v not in (None, "", []) and k != "user_id"}
+        if "user_id" in TOOLS[body.tool].input_model.model_fields:
+            clean["user_id"] = current_user()
         argv = ["run", body.tool, "--json", json.dumps(clean)]
-        label = f"{body.tool} {json.dumps(clean)}"[:120]
+        label = f"{body.tool} {json.dumps({k: v for k, v in clean.items() if k != 'user_id'})}"[:120]
     try:
         return runs.start(argv, label)
     except RuntimeError as e:
@@ -321,35 +355,64 @@ def stop_run(run_id: str):
     return {"stopped": runs.stop(run_id)}
 
 
-# --- config files --------------------------------------------------------------------------
+# --- settings: profile sections and the shared config files ----------------------------------
 
 @app.get("/api/config")
 def list_config():
-    return [configs.read(name) for name in configs.FILES]
+    return configs.read_all(current_user())
 
 
 @app.get("/api/config/{name}")
 def get_config(name: str):
     try:
-        return {**configs.read(name), "backups": configs.backups(name)}
+        return {**configs.read(name, current_user()), "backups": configs.backups(name)}
     except KeyError:
-        raise HTTPException(404, "no such config file")
+        raise HTTPException(404, "no such setting")
 
 
 class ConfigBody(BaseModel):
-    text: str | None = None            # raw YAML, saved as typed
-    data: dict[str, object] | None = None   # form values, merged into the file
+    text: str | None = None            # raw YAML, saved as typed (files only)
+    data: dict[str, object] | None = None   # form values
 
 
 @app.put("/api/config/{name}")
 def put_config(name: str, body: ConfigBody):
     try:
         if body.text is not None:
+            if name in configs.PROFILE_SECTIONS:
+                raise HTTPException(400, "profile sections are edited with the form")
             return configs.save_text(name, body.text)
         if body.data is not None:
-            return configs.save_data(name, body.data)
+            return configs.save_data(name, body.data, current_user())
+    except HTTPException:
+        raise
     except KeyError:
-        raise HTTPException(404, "no such config file")
+        raise HTTPException(404, "no such setting")
     except Exception as e:  # bad YAML or unwritable file: tell the page why
         raise HTTPException(400, f"{type(e).__name__}: {e}")
     raise HTTPException(400, "send text or data")
+
+
+# --- the current user's resume -------------------------------------------------------------
+
+@app.get("/api/resume")
+def get_resume():
+    from jobagent.users import active_resume
+    with session() as s:
+        r = active_resume(s, current_user())
+        return {"filename": r.filename, "sha": r.sha, "uploaded_at": r.uploaded_at.isoformat(timespec="seconds"),
+                "chars": len(r.text), "text": r.text} if r else None
+
+
+class ResumeBody(BaseModel):
+    text: str
+    filename: str | None = None
+
+
+@app.put("/api/resume")
+def put_resume(body: ResumeBody):
+    from jobagent.tools.embeddings import UploadResumeInput, upload_resume
+    result = upload_resume(UploadResumeInput(user_id=current_user(), text=body.text, filename=body.filename))
+    if result.error:
+        raise HTTPException(400, result.error)
+    return result

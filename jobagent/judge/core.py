@@ -61,8 +61,8 @@ def _quote_in(quote: str | None, texts) -> bool:
     return any(q in _norm(t) or fuzz.partial_ratio(q, _norm(t)) >= 90 for t in texts)
 
 
-def retrieve(requirements: list[str]) -> tuple[dict[str, str], list[list[str]]]:
-    """Top chunks per requirement. Returns ({heading: text}, [headings per requirement])."""
+def retrieve(requirements: list[str], user_id: int) -> tuple[dict[str, str], list[list[str]]]:
+    """Top chunks of the user's resume per requirement. Returns ({heading: text}, [headings per requirement])."""
     from jobagent.tools.embeddings import QUERY, embed_texts  # here, not at the top: avoids an import cycle
     vectors = embed_texts(requirements, QUERY)
     chunks: dict[str, str] = {}
@@ -70,7 +70,8 @@ def retrieve(requirements: list[str]) -> tuple[dict[str, str], list[list[str]]]:
     with session() as s:
         for v in vectors:
             rows = s.execute(
-                select(GoldenChunk.heading, GoldenChunk.text).where(~GoldenChunk.always_include)
+                select(GoldenChunk.heading, GoldenChunk.text)
+                .where(GoldenChunk.user_id == user_id, ~GoldenChunk.always_include)
                 .order_by(GoldenChunk.embedding.cosine_distance(v)).limit(CHUNKS_PER_REQUIREMENT)
             ).all()
             per_req.append([h for h, _ in rows])
@@ -79,10 +80,10 @@ def retrieve(requirements: list[str]) -> tuple[dict[str, str], list[list[str]]]:
     return chunks, per_req
 
 
-def judge(title: str, company: str, requirements: list[tuple[str, str]]) -> list[dict]:
+def judge(title: str, company: str, requirements: list[tuple[str, str]], user_id: int) -> list[dict]:
     """requirements: [(label, text)]. Returns one dict per requirement, in order, with verified evidence."""
     texts = [t for _, t in requirements]
-    chunks, per_req = retrieve(texts)
+    chunks, per_req = retrieve(texts, user_id)
     budget, kept = MAX_CONTEXT_CHARS, {}
     for heading in (h for hs in per_req for h in hs):  # keep the most relevant first, within budget
         if heading not in kept and len(chunks[heading]) <= budget:

@@ -1,18 +1,21 @@
-"""Judgement tools: the LLM's per-requirement verdicts and the match score built from them."""
+"""Judgement tools: the LLM's per-requirement verdicts and the match score built from them.
+
+Per user: the resume excerpts, the targets and the stored verdicts (user_jobs)."""
 import logging
 from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
-from jobagent.config import get_settings, load_targets
+from jobagent.config import get_settings
 from jobagent.db import session
 from jobagent.judge.core import judge
-from jobagent.models import Company, GoldenChunk, Job
+from jobagent.models import Company, GoldenChunk, Job, UserJob
 from jobagent.parse.schema import ParsedJob
 from jobagent.tools.enrichment import EnrichJobInput, enrich_job
 from jobagent.tools.registry import tool_spec
-from jobagent.tools.scoring import GATE_CAP, combine, in_scope
+from jobagent.tools.scoring import combine, in_scope
+from jobagent.users import get_profile, resolve_user, user_job
 
 log = logging.getLogger(__name__)
 MAX_REQUIREMENTS = 16
@@ -50,6 +53,7 @@ def _explanation(score: int, items: list[dict], seniority: str, sen_fit: float, 
 
 
 class JudgeJobInput(BaseModel):
+    user_id: int | None = Field(None, description="Whose resume to judge against; default: the current user")
     job_id: int = Field(description="jobs.id to judge")
     force: bool = Field(False, description="Judge again even if the job already has a match score")
 
@@ -66,23 +70,26 @@ class JudgeResult(BaseModel):
 @tool_spec(
     name="judge_job",
     description=(
-        "Have the LLM judge one job against the golden-source resume: a verdict (Covered, Augmentable, "
+        "Have the LLM judge one job against the user's resume: a verdict (Covered, Augmentable, "
         "Reframe, Gap) with quoted evidence for every required and preferred qualification, rolled up "
         "into a 0-100 match score and a short explanation. Slow (20-60 seconds per job)."
     ),
 )
 def judge_job(args: JudgeJobInput) -> JudgeResult:
+    uid = resolve_user(args.user_id)
     with session() as s:
         row = s.execute(select(Job, Company.name).join(Company, Company.id == Job.company_id).where(Job.id == args.job_id)).first()
         if row is None:
             return JudgeResult(job_id=args.job_id, outcome="failed", error="no such job")
         job, company = row
-        if job.match_score is not None and not args.force:
-            return JudgeResult(job_id=job.id, outcome="already_judged", title=job.title, match_score=job.match_score,
-                               explanation=job.match_explanation)
-        sha = s.scalar(select(GoldenChunk.source_sha).limit(1))
+        mine = s.get(UserJob, (uid, job.id))
+        if mine and mine.match_score is not None and not args.force:
+            return JudgeResult(job_id=job.id, outcome="already_judged", title=job.title, match_score=mine.match_score,
+                               explanation=mine.match_explanation)
+        sha = s.scalar(select(GoldenChunk.source_sha).where(GoldenChunk.user_id == uid).limit(1))
         if sha is None:
-            return JudgeResult(job_id=job.id, outcome="failed", title=job.title, error="golden source is not indexed")
+            return JudgeResult(job_id=job.id, outcome="failed", title=job.title, error="the user's resume is not indexed")
+        fit_details = (mine.fit_details if mine else None) or {}
         reqs = _requirements(job)
         if not reqs and job.extracted is None:
             s.expunge(job)
@@ -94,14 +101,14 @@ def judge_job(args: JudgeJobInput) -> JudgeResult:
             reqs = _requirements(job)
     if not reqs:
         return JudgeResult(job_id=args.job_id, outcome="failed", title=job.title, error="no requirements found in the posting")
-    title, fit_details, parsed = job.title, job.fit_details or {}, ParsedJob.model_validate(job.parsed) if job.parsed else None
+    title, parsed = job.title, ParsedJob.model_validate(job.parsed) if job.parsed else None
     try:
-        items = judge(title, company, reqs)
+        items = judge(title, company, reqs, uid)
     except Exception as e:  # noqa: BLE001 - one bad job must not stop the batch
         return JudgeResult(job_id=args.job_id, outcome="failed", title=title, error=f"{type(e).__name__}: {e}"[:300])
 
     # roll-up in plain code, with the same weights and gates as the fast score
-    cfg = load_targets()
+    cfg = get_profile(uid)["targets"]
     req = [i["pct"] for i in items if i["label"] == "required"]
     pref = [i["pct"] for i in items if i["label"] == "preferred"]
     m = sum(req) / len(req) / 100 if req else 0.0
@@ -113,17 +120,17 @@ def judge_job(args: JudgeJobInput) -> JudgeResult:
     explanation = _explanation(score, items, parsed.seniority if parsed else "unknown", sen, gates)
     now = datetime.now(timezone.utc)
     with session() as s, s.begin():
-        job = s.get(Job, args.job_id)
-        job.match_score, job.match_explanation = score, explanation
-        job.match_details = {"items": items, "components": {"required": round(m, 2), "preferred": round(p, 2),
+        row = user_job(s, uid, args.job_id)
+        row.match_score, row.match_explanation = score, explanation
+        row.match_details = {"items": items, "components": {"required": round(m, 2), "preferred": round(p, 2),
                              "title_family": f, "seniority": sen, "domain": d}, "gates": gates,
                              "requirements_from": "parser" if parsed and parsed.sections_quality == "labelled" else "llm"}
-        job.match_model, job.golden_source_sha, job.scored_at = get_settings().llm_model, sha, now
-        job.status = "scored"
+        row.match_model, row.golden_source_sha, row.scored_at = get_settings().llm_model, sha, now
     return JudgeResult(job_id=args.job_id, outcome="judged", title=title, match_score=score, explanation=explanation)
 
 
 class JudgeJobsInput(BaseModel):
+    user_id: int | None = Field(None, description="Whose jobs to judge; default: the current user")
     min_fit_score: int = Field(50, ge=0, le=100, description="Only jobs with at least this fast score")
     limit: int = Field(20, ge=1, description="Maximum jobs to judge in this call")
     rejudge: bool = Field(False, description="Also judge jobs that already have a match score (e.g. after the resume changed)")
@@ -138,28 +145,35 @@ class JudgeJobsResult(BaseModel):
     error: str | None = None
 
 
+def _candidates(uid: int, min_fit: int):
+    return (
+        select(UserJob.job_id).join(Job, Job.id == UserJob.job_id)
+        .where(UserJob.user_id == uid, UserJob.in_scope, Job.duplicate_of.is_(None),
+               UserJob.fit_score >= min_fit,
+               (UserJob.user_label.is_(None)) | (UserJob.user_label != "not_interested"))
+    )
+
+
 @tool_spec(
     name="judge_jobs",
     description=(
-        "Run the LLM judgement on the jobs that earned it: in scope, not merged, not marked not-interested, "
-        "fast score at or above min_fit_score, favorites and interested jobs first, up to a limit. "
-        "Skips jobs already judged unless rejudge is set."
+        "Run the LLM judgement on the jobs that earned it: in the user's scope, not merged, not marked "
+        "not-interested, fast score at or above min_fit_score, favorites and interested jobs first, up to "
+        "a limit. Skips jobs already judged unless rejudge is set."
     ),
 )
 def judge_jobs(args: JudgeJobsInput) -> JudgeJobsResult:
+    uid = resolve_user(args.user_id)
     out = JudgeJobsResult()
-    base = (
-        select(Job.id).where(in_scope(), Job.duplicate_of.is_(None), Job.fit_score >= args.min_fit_score,
-                             (Job.user_label.is_(None)) | (Job.user_label != "not_interested"))
-    )
+    base = _candidates(uid, args.min_fit_score)
     if not args.rejudge:
-        base = base.where(Job.match_score.is_(None))
+        base = base.where(UserJob.match_score.is_(None))
     with session() as s:
         ids = list(s.scalars(base.order_by(
-            Job.favorite.desc(), (Job.user_label == "interested").desc(), Job.fit_score.desc(), Job.id
+            UserJob.favorite.desc(), (UserJob.user_label == "interested").desc(), UserJob.fit_score.desc(), UserJob.job_id
         ).limit(args.limit)))
     for n, job_id in enumerate(ids, 1):
-        r = judge_job(JudgeJobInput(job_id=job_id, force=args.rejudge))
+        r = judge_job(JudgeJobInput(user_id=uid, job_id=job_id, force=args.rejudge))
         setattr(out, r.outcome, getattr(out, r.outcome) + 1) if r.outcome in ("judged", "already_judged", "failed") else None
         if r.outcome == "judged":
             out.scores.append(f"{r.match_score} {r.title}")
@@ -167,7 +181,8 @@ def judge_jobs(args: JudgeJobsInput) -> JudgeJobsResult:
                  f" -> {r.match_score}" if r.match_score is not None else f" ({r.error})" if r.error else "")
     with session() as s:
         out.remaining = s.scalar(select(func.count()).select_from(
-            select(Job.id).where(in_scope(), Job.duplicate_of.is_(None), Job.fit_score >= args.min_fit_score,
-                                 (Job.user_label.is_(None)) | (Job.user_label != "not_interested"),
-                                 Job.match_score.is_(None)).subquery()))
+            _candidates(uid, args.min_fit_score).where(UserJob.match_score.is_(None)).subquery()))
     return out
+
+
+__all__ = ["in_scope", "judge_job", "judge_jobs"]

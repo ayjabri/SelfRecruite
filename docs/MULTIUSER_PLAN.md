@@ -1,6 +1,6 @@
 # Multi-user plan — Self Recruiter (AI) as a platform
 
-Date: Oct 6, 2026. Status: **proposal, nothing built yet.**
+Date: Oct 6, 2026. Status: **approved Oct 6, 2026. Phase 1 done (Oct 6); Phase 2 next.**
 
 ## Goal
 
@@ -119,11 +119,30 @@ Config files keep one job: **defaults for a new profile** (`config/*.yaml` → t
 
 - Tailoring (BUILD_PLAN step 6) per user, MCP server, more sources (Lever, Ashby, SmartRecruiters).
 
+## Phase 1 as built (Oct 6, 2026)
+
+- Migration `d4e5f6a7b8c9`: `users`, `profiles`, `resumes`, `user_jobs`, `preference_models`;
+  `golden_chunks.user_id/resume_id`; `runs.user_id`; the per-user columns left `jobs`. User 1
+  (admin, email from `ADMIN_EMAIL`) received the marks, scores, judgements, resume (as a stored
+  `resumes` row), chunks, preference model and a profile seeded from the config files.
+- `jobagent/users.py`: `DEFAULT_USER_ID`, `get_profile` / `save_profile` (sections fall back to
+  the `config/*.yaml` templates), `active_resume`, `user_job`.
+- Per-user tools (all take `user_id`, default the current user): `upload_resume` (new),
+  `index_golden_source`, `compute_scope` (new: profile title keywords + states → `user_jobs.in_scope`),
+  `score_jobs_fast` (runs `compute_scope` first), `train_preference_model` (model stored in the DB),
+  `judge_job` / `judge_jobs`, `label_job`, `annotate_job`, `job_skills`, `my_skills`.
+- Crawl pre-filter keeps the union of every profile's title keywords; dedup carries every user's
+  marks across a merge; `purge_jobs` keeps jobs any user marked.
+- Web: every endpoint acts as `current_user()` (DEFAULT_USER_ID for now); Settings tab edits the
+  profile sections (Scope, Scoring, Skills) and the resume per user, and the shared files
+  (companies, skill catalogue, templates) for the admin.
+- Still global in Phase 1: which postings get parsed (crawl pre-filter), companies, dedup decisions.
+
 ## Order and effort
 
 | Phase | Depends on | Rough size |
 |---|---|---|
-| 1 Data model split + migration | — | 1 session |
+| 1 Data model split + migration | — | done |
 | 2 Per-user tools, two pipelines, worker | 1 | 2 sessions |
 | 3 Auth | 1 | 1 session |
 | 4 UI (onboarding, login, split files, admin) | 2, 3 | 2–3 sessions |
@@ -132,17 +151,15 @@ Config files keep one job: **defaults for a new profile** (`config/*.yaml` → t
 Phases 1–3 can be built and tested from the CLI with user 1 before any UI changes, so the
 current UI keeps working throughout (it will read `user_jobs` for user 1 after Phase 1).
 
-## Decisions needed before starting
+## Decisions (Oct 6, 2026)
 
-1. **Audience and exposure.** Friends on the LAN, or the internet with a domain? Changes Phase 5
-   and whether email verification is required. Default assumed: internet, small group (tens of users).
-2. **Sign-in.** Email + password now, Google later? Default: email + password.
-3. **LLM cost.** Shared Ollama with a daily per-user judgement budget, plus optional own API key?
-   Default: yes, 20 judgements/user/day.
-4. **Companies.** One shared crawl list managed by the admin (default), or can users request
-   companies? Default: shared list, users can submit a request the admin approves.
-5. **Resume formats.** Markdown only (as now), or PDF/DOCX too? Default: all three.
-6. **The current UI** stays usable for you (user 1) during the rebuild. Any feature freeze
-   needed on it meanwhile?
-
-Approve the defaults, or change any, and Phase 1 starts.
+1. **Audience.** LAN first; publish to the internet later. Users will be able to connect their own
+   Claude (Anthropic) or OpenAI account for commentary and resume tailoring, so **per-user LLM
+   provider keys are a first-class feature** (encrypted at rest, provider + model per user), not an
+   afterthought. The shared local Ollama stays the default for scoring and judgement.
+2. **Sign-in.** Email + password (default). Google later if wanted.
+3. **LLM cost.** Shared Ollama with a daily per-user judgement budget (20/day); a user's own key
+   lifts the cap and powers commentary / tailoring.
+4. **Companies.** One shared crawl list managed by the admin; users can request additions.
+5. **Resume formats.** Markdown only for now.
+6. **No feature freeze** on the current UI; it keeps working as user 1 throughout.

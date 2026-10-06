@@ -251,7 +251,7 @@
   </div>
   <div id="settings" hidden>
     <h2>Settings</h2>
-    <div class="sub">The files in <code>config/</code>. Saving keeps the comments in the file and writes a backup to <code>data/config_backups/</code>.</div>
+    <div class="sub">Your profile (scope, scoring, skills, resume) and the shared crawl settings. File saves keep the comments in the file and write a backup to <code>data/config_backups/</code>.</div>
     <div class="cfgnav" id="cfgnav"></div>
     <div id="cfgbody"></div>
   </div>
@@ -478,20 +478,13 @@ applyTheme(savedTheme);
 
 // ---- settings: form editors for the files in config/
 const CONFIG_FORMS = {
-  filters: [
-    {section: "Title keywords", help: "A posting is kept only if its title contains at least one keyword below and none of the excluded ones. Whole words, case-insensitive."},
+  scope: [
+    {section: "Title keywords", help: "A job counts for you only if its title contains at least one keyword below and none of the excluded ones. Whole words, case-insensitive."},
     {path: "title.include", type: "list", label: "Keep titles containing", help: "one phrase per line"},
     {path: "title.exclude", type: "list", label: "Drop titles containing", help: "one phrase per line"},
     {section: "Location"},
-    {path: "location.us_only", type: "bool", label: "US only", help: "drop postings clearly outside the US; unclear locations are kept"},
-    {path: "location.allowed_states", type: "tags", label: "Allowed states", help: "state codes, comma-separated. Remote postings and unreadable locations are kept. Empty = no state gate"},
-    {path: "location.extra_us", type: "tags", label: "Extra US place names"},
-    {path: "location.extra_non_us", type: "tags", label: "Extra non-US place names"},
-  ],
-  companies: [
-    {path: "greenhouse", type: "tags", label: "Greenhouse boards", help: "board slugs from boards.greenhouse.io/<slug>, comma-separated"},
-    {path: "workday", type: "table", label: "Workday sites", columns: ["company", "site"], help: "site = tenant:wdN:site, from https://<tenant>.<wdN>.myworkdayjobs.com/<site>"},
-    {path: "oracle", type: "table", label: "Oracle Recruiting sites", columns: ["company", "host", "site_number"], help: "from https://<host>/hcmUI/CandidateExperience/en/sites/<site_number>"},
+    {path: "location.allowed_states", type: "tags", label: "Allowed states", help: "state codes, comma-separated. Empty = anywhere in the US"},
+    {path: "location.remote_ok", type: "bool", label: "Remote jobs count", help: "keep remote jobs wherever they are based"},
   ],
   targets: [
     {section: "Fit score", help: "rule score = 100 × (required·M + preferred·P + title_family·F + seniority·S + domain·D)"},
@@ -502,7 +495,6 @@ const CONFIG_FORMS = {
     {section: "Domain"},
     {path: "domains.companies", type: "tags", label: "Domain companies", help: "full domain credit for these employers"},
     {path: "domains.keywords", type: "tags", label: "Domain keywords", help: "otherwise 1/3 credit per distinct keyword found"},
-    {path: "bank_title_companies", type: "tags", label: "Bank-style titles", help: "employers where Vice President is mid-senior, not an executive"},
     {section: "Hard gates", help: "a job that trips a gate is capped at 30"},
     {path: "gates.clearance_required", type: "bool", label: "Cap clearance-required jobs"},
     {path: "gates.phd_required", type: "bool", label: "Cap PhD-required jobs"},
@@ -510,9 +502,26 @@ const CONFIG_FORMS = {
     {path: "gates.allowed_states", type: "tags", label: "Allowed states", help: "cap non-remote jobs located elsewhere"},
   ],
   skills: [
+    {path: "have", type: "tags", label: "Skills you also have", help: "beyond what your resume text mentions; names from the skill catalogue"},
+    {path: "not_have", type: "tags", label: "Skills not to claim", help: "mentioned in your resume but you would rather not claim"},
+  ],
+  companies: [
+    {path: "greenhouse", type: "tags", label: "Greenhouse boards", help: "board slugs from boards.greenhouse.io/<slug>, comma-separated"},
+    {path: "workday", type: "table", label: "Workday sites", columns: ["company", "site"], help: "site = tenant:wdN:site, from https://<tenant>.<wdN>.myworkdayjobs.com/<site>"},
+    {path: "oracle", type: "table", label: "Oracle Recruiting sites", columns: ["company", "host", "site_number"], help: "from https://<host>/hcmUI/CandidateExperience/en/sites/<site_number>"},
+  ],
+  skill_catalogue: [
     {path: "skills", type: "maplist", label: "Skill catalogue", columns: ["skill", "phrases that mean it"], help: "phrases are matched whole-word, case-insensitive"},
-    {path: "have", type: "tags", label: "Skills you also have", help: "beyond what the resume text mentions"},
-    {path: "not_have", type: "tags", label: "Skills not to claim", help: "mentioned in the resume but you would rather not claim"},
+  ],
+  filters_template: [
+    {section: "Crawl location rules", help: "applied to every posting before it is parsed, for all users"},
+    {path: "location.us_only", type: "bool", label: "US only", help: "drop postings clearly outside the US; unclear locations are kept"},
+    {path: "location.allowed_states", type: "tags", label: "Crawl states", help: "the crawl keeps postings in these states, remote ones, and unreadable locations. Empty = whole US"},
+    {path: "location.extra_us", type: "tags", label: "Extra US place names"},
+    {path: "location.extra_non_us", type: "tags", label: "Extra non-US place names"},
+    {section: "Title keywords a new profile starts from", help: "the crawl also parses every title any user's scope asks for"},
+    {path: "title.include", type: "list", label: "Keep titles containing"},
+    {path: "title.exclude", type: "list", label: "Drop titles containing"},
   ],
 };
 let configs = {}, cfgName = null, cfgYaml = false;
@@ -525,16 +534,20 @@ async function loadConfigs() {
   const list = await api("/api/config");
   configs = Object.fromEntries(list.map(c => [c.name, c]));
   if (!cfgName) cfgName = list[0].name;
-  $("cfgnav").innerHTML = list.map(c => `<button data-cfg="${c.name}" class="${c.name === cfgName ? "on" : ""}" title="${esc(c.description)}">${esc(c.title)} <span class="match" style="color:var(--muted)">${esc(c.path.replace("config/", ""))}</span></button>`).join("");
-  renderConfig();
+  const btn = c => `<button data-cfg="${c.name}" class="${c.name === cfgName ? "on" : ""}" title="${esc(c.description)}">${esc(c.title)}${c.path ? ` <span class="match" style="color:var(--muted)">${esc(c.path.replace("config/", ""))}</span>` : ""}</button>`;
+  $("cfgnav").innerHTML = `<span class="match" style="color:var(--muted);align-self:center">You:</span>` + list.filter(c => c.kind === "profile").map(btn).join("") +
+    `<button data-cfg="resume" class="${cfgName === "resume" ? "on" : ""}" title="Your resume (markdown)">Resume</button>` +
+    `<span class="match" style="color:var(--muted);align-self:center;margin-left:12px">Shared:</span>` + list.filter(c => c.kind === "file").map(btn).join("");
+  if (cfgName === "resume") renderResume(); else renderConfig();
 }
 function renderConfig() {
   const c = configs[cfgName]; if (!c) return;
-  const head = `<div class="cfghead"><b>${esc(c.title)}</b><span class="path">${esc(c.path)}</span><span class="match" style="color:var(--muted)">${esc(c.description)}</span>
-    <span class="right"><label class="f"><input type="checkbox" id="cfg-yaml" ${cfgYaml ? "checked" : ""}> edit as YAML</label><button id="cfg-reload">Discard changes</button><button class="save" id="cfg-save">Save</button></span></div>
+  const isFile = c.kind === "file";
+  const head = `<div class="cfghead"><b>${esc(c.title)}</b>${isFile ? `<span class="path">${esc(c.path)}</span>` : ""}<span class="match" style="color:var(--muted)">${esc(c.description)}</span>
+    <span class="right">${isFile ? `<label class="f"><input type="checkbox" id="cfg-yaml" ${cfgYaml ? "checked" : ""}> edit as YAML</label>` : ""}<button id="cfg-reload">Discard changes</button><button class="save" id="cfg-save">Save</button></span></div>
     <div class="cfgmsg" id="cfg-msg"></div>`;
   let body;
-  if (cfgYaml) body = `<textarea class="yaml" id="cfg-text" spellcheck="false">${esc(c.text)}</textarea>`;
+  if (cfgYaml && isFile) body = `<textarea class="yaml" id="cfg-text" spellcheck="false">${esc(c.text)}</textarea>`;
   else body = `<div class="card">${(CONFIG_FORMS[cfgName] || []).map(f => renderField(f, c.data)).join("") || '<div class="sub">No form for this file; use "edit as YAML".</div>'}</div>`;
   $("cfgbody").innerHTML = head + body;
 }
@@ -563,6 +576,26 @@ const tableRow = (cols, row = {}) => `<tr>${cols.map(c => `<td><input type="text
 const mapRow = (k = "", list = []) => `<tr><td style="width:220px"><input type="text" data-key value="${esc(k)}"></td><td><input type="text" data-list value="${esc(list.join(", "))}"></td>${delBtn}</tr>`;
 const familyRow = (k = "", fam = {}) => `<tr><td style="width:200px"><input type="text" data-key value="${esc(k)}"></td><td><input type="number" class="num" data-weight value="${fam.weight ?? 1}" step="0.05"></td><td><input type="text" data-list value="${esc((fam.keywords || []).join(", "))}"></td>${delBtn}</tr>`;
 
+async function renderResume() {
+  const r = await api("/api/resume");
+  $("cfgbody").innerHTML = `<div class="cfghead"><b>Resume</b><span class="match" style="color:var(--muted)">Markdown. Sections are split by heading, embedded, and matched against each job's requirements.</span>
+      <span class="right"><button class="save" id="resume-save">Save and re-index</button></span></div>
+    <div class="cfgmsg" id="cfg-msg">${r ? `Active: ${esc(r.filename || "resume")} · ${r.chars.toLocaleString()} characters · uploaded ${esc(r.uploaded_at.slice(0, 16).replace("T", " "))}` : "No resume stored yet."}</div>
+    <textarea class="yaml" id="resume-text" spellcheck="false" placeholder="# Your name&#10;&#10;## Experience&#10;...">${esc(r ? r.text : "")}</textarea>`;
+}
+async function saveResume() {
+  const msg = $("cfg-msg"); msg.className = "cfgmsg"; msg.textContent = "Saving and indexing…"; $("resume-save").disabled = true;
+  try {
+    const r = await api("/api/resume", {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text: $("resume-text").value, filename: "resume.md"})});
+    msg.className = "cfgmsg ok";
+    msg.innerHTML = r.unchanged ? "Unchanged." : `Saved and indexed into ${r.chunks} sections. Re-score every job: <button id="cfg-after">Run score_jobs_fast now</button>`;
+    if (!r.unchanged) $("cfg-after").addEventListener("click", async () => {
+      const run = await api("/api/runs", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({command: "run", tool: "score_jobs_fast", args: {rescore: true}})});
+      showTab("run"); watch(run.id);
+    });
+  } catch (e) { msg.className = "cfgmsg err"; msg.textContent = "Not saved: " + e.message.replace(/^.*"detail":"?/, "").replace(/"?}$/, ""); }
+  $("resume-save").disabled = false;
+}
 function collectConfig() {
   const data = JSON.parse(JSON.stringify(configs[cfgName].data));
   for (const el of $("cfgbody").querySelectorAll(".field.cfg")) {
@@ -582,7 +615,7 @@ function collectConfig() {
 }
 async function saveConfig() {
   const msg = $("cfg-msg"), btn = $("cfg-save");
-  const body = cfgYaml ? {text: $("cfg-text").value} : {data: collectConfig()};
+  const body = cfgYaml && configs[cfgName].kind === "file" ? {text: $("cfg-text").value} : {data: collectConfig()};
   btn.disabled = true; msg.className = "cfgmsg"; msg.textContent = "Saving…";
   try {
     const c = await api("/api/config/" + cfgName, {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
@@ -594,6 +627,7 @@ async function saveConfig() {
       catch (e) { $("cfg-msg").className = "cfgmsg err"; $("cfg-msg").textContent = e.message; }
     });
     if (cfgName === "skills" && selected != null) select(selected);
+    if (cfgName === "scope") loadSummary();
   } catch (e) {
     msg.className = "cfgmsg err"; msg.textContent = "Not saved: " + e.message.replace(/^.*"detail":"?/, "").replace(/"?}$/, "");
     btn.disabled = false;
@@ -602,6 +636,7 @@ async function saveConfig() {
 $("cfgnav").addEventListener("click", e => { const b = e.target.closest("button[data-cfg]"); if (b) { cfgName = b.dataset.cfg; loadConfigs(); } });
 $("cfgbody").addEventListener("click", e => {
   if (e.target.id === "cfg-save") return saveConfig();
+  if (e.target.id === "resume-save") return saveResume();
   if (e.target.id === "cfg-reload") return loadConfigs();
   const d = e.target.closest("button[data-del]"); if (d) { d.closest("tr").remove(); return; }
   const a = e.target.closest("button[data-add]");

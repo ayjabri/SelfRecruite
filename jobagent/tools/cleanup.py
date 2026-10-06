@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, or_, select, update
 
 from jobagent.db import session
-from jobagent.models import Job, JobSource, RawPosting
+from jobagent.models import Job, JobSource, RawPosting, UserJob
 from jobagent.tools.filtering import FILTERED, load_filters
 from jobagent.tools.registry import tool_spec
 
@@ -25,7 +25,7 @@ class PurgeInput(BaseModel):
     keep_remote: bool = Field(True, description="Keep remote jobs wherever they are located")
     keep_unknown: bool = Field(True, description="Keep jobs whose state could not be read")
     keep_marked: bool = Field(True, description=(
-        "Keep jobs you marked interested, favorite, applied, or wrote notes on"))
+        "Keep jobs any user marked interested, favorite, applied, or wrote notes on"))
     dry_run: bool = Field(True, description="Only report what would be deleted. Set false to delete.")
 
 
@@ -59,6 +59,8 @@ def purge_jobs(args: PurgeInput) -> PurgeResult:
     out = PurgeResult(dry_run=args.dry_run)
     with session() as s, s.begin():
         jobs = s.scalars(select(Job).where(Job.duplicate_of.is_(None)).order_by(Job.id)).all()
+        marked_ids = set(s.scalars(select(UserJob.job_id).where(
+            (UserJob.user_label == "interested") | UserJob.favorite | UserJob.applied_at.is_not(None) | UserJob.notes.is_not(None))))
         doomed: list[int] = []
         for j in jobs:
             states = _states(j)
@@ -71,8 +73,7 @@ def purge_jobs(args: PurgeInput) -> PurgeResult:
             elif states & allowed:
                 continue
             out.matched += 1
-            marked = j.user_label == "interested" or j.favorite or j.applied_at is not None or bool(j.notes)
-            if args.keep_marked and marked:
+            if args.keep_marked and j.id in marked_ids:
                 out.kept_marked += 1
                 continue
             doomed.append(j.id)

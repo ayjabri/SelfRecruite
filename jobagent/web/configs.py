@@ -1,8 +1,8 @@
-"""Read and edit the files in config/ from the web page.
+"""Settings for the web page: the user's profile sections, and the shared files in config/.
 
-Saves go through ruamel.yaml so the comments in the files survive; each save first copies
-the old file to data/config_backups/. Caches in this process are cleared after a save
-(tools started from the Run tab are separate processes and always read the files fresh).
+Profile sections (targets, scope, skills) live in the database per user. The files are shared:
+the crawl's company list, the skill catalogue, and the templates a new profile starts from.
+File saves go through ruamel.yaml so the comments survive, after a backup to data/config_backups/.
 """
 import io
 from datetime import datetime
@@ -12,27 +12,36 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
 from jobagent.config import ROOT, get_settings
+from jobagent.users import get_profile, save_profile
 
 BACKUPS = ROOT / "data" / "config_backups"
 KEEP_BACKUPS = 20
 
-# name -> (path, title, what to run after a change)
-FILES = {
-    "filters": {"title": "Pre-filter", "description": "Which postings are kept before parsing: title keywords and location.",
-                "after": {"tool": "filter_pending_postings", "args": {"recheck": True},
-                          "note": "Re-check every stored posting against the new rules"}},
+RESCORE = {"tool": "score_jobs_fast", "args": {"rescore": True}, "note": "Re-score every job in your scope"}
+PROFILE_SECTIONS = {
     "targets": {"title": "Scoring", "description": "Fit-score weights, title families, seniority, domain and the hard gates.",
-                "after": {"tool": "score_jobs_fast", "args": {"rescore": True},
-                          "note": "Re-score every job (then retrain the preference model)"}},
-    "companies": {"title": "Companies", "description": "Which employers each source pulls from.", "after": None},
-    "skills": {"title": "Skills", "description": "The technical-skill catalogue and which skills you have.", "after": None},
+                "after": RESCORE},
+    "scope": {"title": "Scope", "description": "Which jobs count for you: title keywords and allowed states.",
+              "after": {"tool": "filter_pending_postings", "args": {"recheck": True},
+                        "note": "Re-check stored postings so newly wanted titles get parsed; your scope and scores update on the next fast score"}},
+    "skills": {"title": "Skills", "description": "Skills you have beyond what your resume text mentions, and ones not to claim.",
+               "after": None},
+}
+FILES = {
+    "companies": {"title": "Companies", "description": "Which employers the shared crawl pulls from.", "after": None},
+    "skill_catalogue": {"title": "Skill catalogue", "description": "The technical skills looked for in postings, with the phrases that mean them.",
+                        "after": None},
+    "filters_template": {"title": "Crawl pre-filter", "description": "Location rules for the crawl, and the title keywords a new profile starts from.",
+                         "after": {"tool": "filter_pending_postings", "args": {"recheck": True},
+                                   "note": "Re-check every stored posting against the new rules"}},
+    "targets_template": {"title": "Scoring template", "description": "The scoring settings a new profile starts from.", "after": None},
 }
 
 
 def _path(name: str) -> Path:
     s = get_settings()
-    known = {"filters": s.filters_file, "targets": s.targets_file, "companies": s.companies_file,
-             "skills": ROOT / "config" / "skills.yaml"}
+    known = {"companies": s.companies_file, "skill_catalogue": ROOT / "config" / "skills.yaml",
+             "filters_template": s.filters_file, "targets_template": s.targets_file}
     if name not in known:
         raise KeyError(name)
     return known[name]
@@ -55,13 +64,19 @@ def _plain(obj):
     return obj
 
 
-def read(name: str) -> dict:
+def read(name: str, user_id: int | None = None) -> dict:
+    if name in PROFILE_SECTIONS:
+        return {"name": name, "kind": "profile", **PROFILE_SECTIONS[name], "data": get_profile(user_id)[name]}
     path = _path(name)
     text = path.read_text() if path.exists() else ""
     data = _yaml().load(text) if text.strip() else None
-    return {"name": name, "path": str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path), **FILES[name], "text": text,
-            "data": _plain(data) if data is not None else {},
+    return {"name": name, "kind": "file", "path": str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path),
+            **FILES[name], "text": text, "data": _plain(data) if data is not None else {},
             "modified": datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds") if path.exists() else None}
+
+
+def read_all(user_id: int | None = None) -> list[dict]:
+    return [read(n, user_id) for n in (*PROFILE_SECTIONS, *FILES)]
 
 
 def _merge(doc, data):
@@ -127,10 +142,10 @@ def _backup(path: Path) -> None:
 
 
 def _clear_caches() -> None:
-    from jobagent import skills
+    from jobagent import skills, users
     from jobagent.config import load_targets
     from jobagent.tools import filtering
-    for fn in (load_targets, filtering.load_filters, skills.load_catalogue, skills.my_skills):
+    for fn in (load_targets, filtering.load_filters, skills.load_catalogue, skills._resume_skills, users.profile_defaults):
         fn.cache_clear()
 
 
@@ -144,8 +159,12 @@ def save_text(name: str, text: str) -> dict:
     return read(name)
 
 
-def save_data(name: str, data: dict) -> dict:
-    """Save values from the form, merged into the existing file so its comments stay."""
+def save_data(name: str, data: dict, user_id: int | None = None) -> dict:
+    """Save values from the form: into the user's profile, or merged into the file so its comments stay."""
+    if name in PROFILE_SECTIONS:
+        save_profile(user_id, **{name: data})
+        _clear_caches()
+        return read(name, user_id)
     path = _path(name)
     y = _yaml()
     doc = y.load(path.read_text()) if path.exists() and path.read_text().strip() else CommentedMap()
@@ -159,5 +178,7 @@ def save_data(name: str, data: dict) -> dict:
 
 
 def backups(name: str) -> list[str]:
+    if name in PROFILE_SECTIONS:
+        return []
     path = _path(name)
     return [p.name for p in sorted(BACKUPS.glob(f"{path.stem}.*{path.suffix}"), reverse=True)]

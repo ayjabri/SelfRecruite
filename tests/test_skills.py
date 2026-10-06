@@ -1,4 +1,4 @@
-from jobagent.skills import extract_skills, my_skills, skill_gap
+from jobagent.skills import extract_skills, skill_gap
 
 
 def test_extract_whole_word_and_symbols():
@@ -9,8 +9,9 @@ def test_extract_whole_word_and_symbols():
     assert "R" not in found             # a bare letter inside words never matches
 
 
-def test_gap_splits_by_resume():
+def test_gap_splits_by_what_the_user_has(monkeypatch):
+    import jobagent.skills as mod
+    monkeypatch.setattr(mod, "my_skills", lambda user_id=None: frozenset({"Python", "Tableau"}))
     gap = skill_gap("Must know Python, Tableau and Scala.")
-    assert "Python" in gap["matching"] and "Tableau" in gap["matching"]
+    assert gap["matching"] == ["Python", "Tableau"]
     assert gap["missing"] == ["Scala"]
-    assert "Python" in my_skills()

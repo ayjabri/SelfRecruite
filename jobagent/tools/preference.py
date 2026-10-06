@@ -1,4 +1,5 @@
-"""Preference model: learns from the jobs you marked which jobs you are likely to want."""
+"""Preference model: learns from the jobs a user marked which jobs they are likely to want."""
+import io
 import logging
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -14,14 +15,13 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import OneHotEncoder
 from sqlalchemy import select
 
-from jobagent.config import ROOT
 from jobagent.db import session
-from jobagent.models import Company, Job
+from jobagent.models import Company, Job, PreferenceModelRow, UserJob
 from jobagent.tools.registry import tool_spec
+from jobagent.users import resolve_user
 
 log = logging.getLogger(__name__)
 
-MODEL_PATH = ROOT / "data" / "preference_model.joblib"
 COMPONENTS = ["required", "preferred", "title_family", "seniority", "domain"]
 MIN_PER_CLASS = 15
 
@@ -87,17 +87,25 @@ def cross_validated_auc(examples: list[Example], labels: list[int], repeats: int
     return float(np.mean(aucs)), float(np.std(aucs))
 
 
-@lru_cache
-def _load(mtime: float) -> PreferenceModel:
-    return joblib.load(MODEL_PATH)
+@lru_cache(maxsize=64)
+def _load(user_id: int, trained_at: str) -> PreferenceModel:
+    with session() as s:
+        row = s.get(PreferenceModelRow, user_id)
+    model = joblib.load(io.BytesIO(row.blob))
+    model.meta = row.meta or model.meta
+    return model
 
 
-def load_model() -> PreferenceModel | None:
-    """The trained model, or None if there isn't one. Reloads when the file changes."""
-    return _load(MODEL_PATH.stat().st_mtime) if MODEL_PATH.exists() else None
+def load_model(user_id: int | None = None) -> PreferenceModel | None:
+    """The user's trained model, or None if there isn't one. Reloads when it is retrained."""
+    uid = resolve_user(user_id)
+    with session() as s:
+        stamp = s.scalar(select(PreferenceModelRow.trained_at).where(PreferenceModelRow.user_id == uid))
+    return _load(uid, stamp.isoformat()) if stamp else None
 
 
 class TrainInput(BaseModel):
+    user_id: int | None = Field(None, description="Whose marks to learn from; default: the current user")
     rescore: bool = Field(True, description="Re-score every in-scope job with the new model straight away")
 
 
@@ -105,7 +113,7 @@ class TrainResult(BaseModel):
     trained: bool = False
     interested: int = 0
     not_interested: int = 0
-    rule_score_auc: float | None = None    # how well the rule-based score alone separates your marks
+    rule_score_auc: float | None = None    # how well the rule-based score alone separates the marks
     model_auc: float | None = None         # the same for the trained model, on jobs held out from training
     model_auc_spread: float | None = None
     rescored: int | None = None
@@ -115,18 +123,20 @@ class TrainResult(BaseModel):
 @tool_spec(
     name="train_preference_model",
     description=(
-        "Train the preference model on the jobs the user has marked as interested or not interested, "
+        "Train the user's preference model on the jobs they marked interested or not interested, "
         "report how well it predicts held-out marks (AUC: 0.5 is chance, 1.0 is perfect), save it, and "
         "re-score the in-scope jobs with it. Run again whenever more jobs have been marked."
     ),
 )
 def train_preference_model(args: TrainInput) -> TrainResult:
+    uid = resolve_user(args.user_id)
     out = TrainResult()
     with session() as s:
         rows = s.execute(
-            select(Job.title, Company.name, Job.seniority, Job.fit_details, Job.embedding, Job.user_label)
+            select(Job.title, Company.name, Job.seniority, UserJob.fit_details, Job.embedding, UserJob.user_label)
+            .join(UserJob, (UserJob.job_id == Job.id) & (UserJob.user_id == uid))
             .join(Company, Company.id == Job.company_id)
-            .where(Job.user_label.is_not(None), Job.fit_details.is_not(None), Job.embedding.is_not(None),
+            .where(UserJob.user_label.is_not(None), UserJob.fit_details.is_not(None), Job.embedding.is_not(None),
                    Job.duplicate_of.is_(None))
         ).all()
     labels = [int(r.user_label == "interested") for r in rows]
@@ -141,17 +151,22 @@ def train_preference_model(args: TrainInput) -> TrainResult:
     out.model_auc, out.model_auc_spread = round(auc, 3), round(spread, 3)
 
     model = PreferenceModel().fit(examples, labels)
+    now = datetime.now(timezone.utc)
     model.meta = {
-        "trained_at": datetime.now(timezone.utc).isoformat(), "labels": len(labels),
+        "trained_at": now.isoformat(), "labels": len(labels),
         "interested": out.interested, "cv_auc": out.model_auc, "rule_score_auc": out.rule_score_auc,
     }
-    MODEL_PATH.parent.mkdir(exist_ok=True)
-    joblib.dump(model, MODEL_PATH)
+    buf = io.BytesIO()
+    joblib.dump(model, buf)
+    with session() as s, s.begin():
+        row = s.get(PreferenceModelRow, uid) or PreferenceModelRow(user_id=uid, blob=b"")
+        row.trained_at, row.meta, row.blob = now, model.meta, buf.getvalue()
+        s.add(row)
     out.trained = True
-    log.info("preference model trained on %d marks, held-out AUC %.3f (rule score %.3f)",
-             len(labels), auc, out.rule_score_auc)
+    log.info("preference model for user %d trained on %d marks, held-out AUC %.3f (rule score %.3f)",
+             uid, len(labels), auc, out.rule_score_auc)
     if args.rescore:
         from jobagent.tools.scoring import ScoreJobsInput, score_jobs_fast
-        scored = score_jobs_fast(ScoreJobsInput(rescore=True))
+        scored = score_jobs_fast(ScoreJobsInput(user_id=uid, rescore=True))
         out.rescored, out.error = scored.scored, scored.error
     return out
