@@ -29,16 +29,20 @@ def index() -> str:
     return INDEX.read_text()
 
 
-LOGO_SOURCE = ROOT / "docs" / "icon.png"
+LOGO_SOURCE = ROOT / "docs" / "phoenix1.png"
 
 
 @lru_cache
 def _logo_bytes() -> bytes:
-    """docs/icon.png is mostly black border; crop to the bird and shrink it, once."""
+    """Crop the logo to its visible content and shrink it, once per server start."""
     from PIL import Image, ImageChops
     im = Image.open(LOGO_SOURCE).convert("RGBA")
-    rgb = im.convert("RGB")
-    bbox = ImageChops.difference(rgb, Image.new("RGB", rgb.size, (0, 0, 0))).point(lambda v: 255 if v > 24 else 0).getbbox()
+    alpha = im.getchannel("A")
+    if alpha.getextrema()[0] < 255:  # transparent background: crop to the opaque pixels
+        bbox = alpha.point(lambda v: 255 if v > 16 else 0).getbbox()
+    else:  # opaque black background: crop to what is not black
+        rgb = im.convert("RGB")
+        bbox = ImageChops.difference(rgb, Image.new("RGB", rgb.size, (0, 0, 0))).point(lambda v: 255 if v > 24 else 0).getbbox()
     crop = im.crop(bbox) if bbox else im
     height = 160
     crop = crop.resize((round(crop.width * height / crop.height), height), Image.LANCZOS)
