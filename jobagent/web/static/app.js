@@ -52,10 +52,14 @@ function inlineMd(s) {
   s = s.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   return s;
 }
-function renderMarkdown(text) {
+// opts.plain: for posting text (not markdown): keep every line break, and show the section
+// headings the parser found (opts.headings) and short "Label:" lines as headings.
+function renderMarkdown(text, opts = {}) {
   const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
   const out = []; let i = 0, para = [], list = null, quote = [];
-  const flushPara = () => { if (para.length) { out.push(`<p>${inlineMd(para.join(" "))}</p>`); para = []; } };
+  const headings = new Set([...(opts.headings || [])].map(h => h.trim().toLowerCase()));
+  const isHeading = l => opts.plain && l.trim().length <= 80 && (headings.has(l.trim().toLowerCase()) || /^[^.!?]{2,60}:$/.test(l.trim()));
+  const flushPara = () => { if (para.length) { out.push(`<p>${para.map(inlineMd).join(opts.plain ? "<br>" : " ")}</p>`); para = []; } };
   const flushList = () => { if (list) { out.push(`<${list.tag}>${list.items.map(x => `<li>${inlineMd(x)}</li>`).join("")}</${list.tag}>`); list = null; } };
   const flushQuote = () => { if (quote.length) { out.push(`<blockquote>${inlineMd(quote.join(" "))}</blockquote>`); quote = []; } };
   const flushAll = () => { flushPara(); flushList(); flushQuote(); };
@@ -64,6 +68,7 @@ function renderMarkdown(text) {
     let m;
     if (/^```/.test(line)) { flushAll(); const code = []; i++; while (i < lines.length && !/^```/.test(lines[i])) code.push(lines[i++]); i++; out.push(`<pre><code>${esc(code.join("\n"))}</code></pre>`); continue; }
     if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { flushAll(); out.push(`<h${m[1].length}>${inlineMd(m[2].replace(/\s+#+$/, ""))}</h${m[1].length}>`); i++; continue; }
+    if (isHeading(line)) { flushAll(); out.push(`<h3>${inlineMd(line.trim())}</h3>`); i++; continue; }
     if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { flushAll(); out.push("<hr>"); i++; continue; }
     if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1])) {
       flushAll(); const cells = l => l.trim().replace(/^\||\|$/g, "").split("|").map(c => inlineMd(c.trim()));
