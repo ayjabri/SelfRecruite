@@ -27,6 +27,9 @@ dependencies = [
     "uvicorn",
     "pillow",
     "ruamel.yaml",
+    "cryptography",
+    "langchain-anthropic",
+    "langchain-openai",
 ]
 
 [project.optional-dependencies]

@@ -80,7 +80,7 @@ def retrieve(requirements: list[str], user_id: int) -> tuple[dict[str, str], lis
     return chunks, per_req
 
 
-def judge(title: str, company: str, requirements: list[tuple[str, str]], user_id: int) -> list[dict]:
+def judge(title: str, company: str, requirements: list[tuple[str, str]], user_id: int, model=None) -> list[dict]:
     """requirements: [(label, text)]. Returns one dict per requirement, in order, with verified evidence."""
     texts = [t for _, t in requirements]
     chunks, per_req = retrieve(texts, user_id)
@@ -91,7 +91,7 @@ def judge(title: str, company: str, requirements: list[tuple[str, str]], user_id
             budget -= len(chunks[heading])
     excerpts = "\n\n".join(f"### {h}\n{t}" for h, t in kept.items())
     listing = "\n".join(f"{i + 1}. [{label}] {t}" for i, (label, t) in enumerate(requirements))
-    model = get_chat_model().with_structured_output(Judgement)
+    model = (model or get_chat_model(user_id=user_id)).with_structured_output(Judgement)
     result: Judgement = model.invoke([
         ("system", SYSTEM),
         ("user", f"JOB: {title} at {company}\n\nREQUIREMENTS:\n{listing}\n\nRESUME EXCERPTS:\n{excerpts}\n\n"

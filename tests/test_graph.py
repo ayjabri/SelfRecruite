@@ -15,6 +15,7 @@ def test_graph_is_generated_from_the_registry(monkeypatch):
         **registry.AGENTS,
         "lever_agent": AgentSpec("lever_agent", "source", "d", "p", ("fetch_greenhouse_jobs",)),
         "dedup_agent": AgentSpec("dedup_agent", "stage", "d", "p", ("parse_posting",), order=20),
+        "tailor_agent": AgentSpec("tailor_agent", "stage", "d", "p", ("judge_jobs",), order=50, scope="user"),
     }
     monkeypatch.setattr(registry, "AGENTS", extra)
     g = build_graph().compile().get_graph()
@@ -22,6 +23,8 @@ def test_graph_is_generated_from_the_registry(monkeypatch):
     assert {"greenhouse_agent", "lever_agent", "parse_agent", "embedding_agent", "dedup_agent"} <= set(g.nodes)
     assert ("plan", "lever_agent") in edges and ("lever_agent", "review") in edges
     stage_chain = [("filter_agent", "parse_agent"), ("parse_agent", "embedding_agent"),
-                   ("embedding_agent", "dedup_agent"), ("dedup_agent", "fast_score_agent"),
-                   ("fast_score_agent", "scoring_agent"), ("scoring_agent", "report")]
-    assert all(e in edges for e in stage_chain)  # stages run in their registered order
+                   ("embedding_agent", "dedup_agent"), ("dedup_agent", "user_stages"), ("user_stages", "report")]
+    assert all(e in edges for e in stage_chain)  # crawl stages in order, then the per-user branch
+    assert "fast_score_agent" not in g.nodes     # user-scope stages run inside user_stages, per user
+    from jobagent.agents.registry import stages
+    assert [a.name for a in stages("user")] == ["fast_score_agent", "scoring_agent", "tailor_agent"]

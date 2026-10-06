@@ -1,6 +1,6 @@
 # Multi-user plan — Self Recruiter (AI) as a platform
 
-Date: Oct 6, 2026. Status: **approved Oct 6, 2026. Phase 1 done (Oct 6); Phase 2 next.**
+Date: Oct 6, 2026. Status: **approved Oct 6, 2026. Phases 1 and 2 done (Oct 6); Phase 3 (auth) next.**
 
 ## Goal
 
@@ -138,12 +138,31 @@ Config files keep one job: **defaults for a new profile** (`config/*.yaml` → t
   (companies, skill catalogue, templates) for the admin.
 - Still global in Phase 1: which postings get parsed (crawl pre-filter), companies, dedup decisions.
 
+## Phase 2 as built (Oct 6, 2026)
+
+- **Crawl parses every US posting.** The crawl pre-filter keeps every title and drops only by
+  location: outside the US, or outside the union of every user's allowed states (no state gate if
+  any user allows anywhere). Title keywords live in each user's scope (`compute_scope`).
+- **Two pipelines in one graph.** Stages carry a `scope`: crawl stages (filter, parse, embed,
+  dedup) run once in a chain; then `user_stages` fans out one branch per active user and runs the
+  user-scope stages (fast score, judgement) with `user_id`. `jobagent score [--user N]` runs the
+  per-user stages alone; the page's Run tab offers it as "score my jobs".
+- **Run queue with lanes** (`jobagent/web/runs.py`): `llm` lane (one at a time: pipeline, judge,
+  enrich) and `default` lane (two in parallel). Queued runs survive a server restart; runs that
+  were in progress are marked failed. Chosen over a separate worker service for now: no extra
+  process or tables; swap for procrastinate when more than one server is needed.
+- **Scheduled crawl:** `systemd/jobagent-crawl.{service,timer}`, 06:00 daily (install with sudo).
+- **Per-user LLM.** Profile `llm` section: provider shared | anthropic | openai, model, API key
+  (Fernet-encrypted with `SECRET_KEY` from .env, write-only in the UI), daily judgement budget on
+  the shared model (default 20; own account lifts it). `get_chat_model(user_id=...)` picks the
+  user's account; `user_jobs.match_model` records which model judged.
+
 ## Order and effort
 
 | Phase | Depends on | Rough size |
 |---|---|---|
 | 1 Data model split + migration | — | done |
-| 2 Per-user tools, two pipelines, worker | 1 | 2 sessions |
+| 2 Per-user tools, two pipelines, worker | 1 | done |
 | 3 Auth | 1 | 1 session |
 | 4 UI (onboarding, login, split files, admin) | 2, 3 | 2–3 sessions |
 | 5 Hardening | 3, 4 | 1 session |

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the jobagent crawl every morning at 06:00
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

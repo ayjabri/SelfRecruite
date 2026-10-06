@@ -36,10 +36,10 @@ def _tool_calls(messages) -> list[dict]:
     return out
 
 
-def _log_run(spec: AgentSpec, started: datetime, report: AgentReport) -> None:
+def _log_run(spec: AgentSpec, started: datetime, report: AgentReport, user_id: int | None = None) -> None:
     with session() as s, s.begin():
         s.add(Run(
-            run_date=date.today(), stage=spec.name, started_at=started,
+            user_id=user_id, run_date=date.today(), stage=spec.name, started_at=started,
             finished_at=datetime.now(timezone.utc), status=report["status"],
             counts={"task": report["task"], "tool_calls": report["tool_calls"]},
             error=report["error"],
@@ -54,17 +54,21 @@ def make_agent_node(spec: AgentSpec):
             task = f"{task}\n\nRun request, for context: {state['request']}"
         started = datetime.now(timezone.utc)
         log.info("%s started: %s", spec.name, task.splitlines()[0][:150])
+        if state.get("user_id") is not None:
+            task = f"{task} (user {state['user_id']})"
         report = AgentReport(agent=spec.name, task=task, status="ok", summary="", tool_calls=[], error=None)
         try:
             if spec.direct:
                 for name in spec.tools:
-                    result = TOOLS[name].call()
-                    report["tool_calls"].append({"tool": name, "args": {}, "result": result.model_dump(mode="json")})
+                    args = {"user_id": state["user_id"]} if state.get("user_id") is not None \
+                        and "user_id" in TOOLS[name].input_model.model_fields else {}
+                    result = TOOLS[name].call(**args)
+                    report["tool_calls"].append({"tool": name, "args": args, "result": result.model_dump(mode="json")})
                     if getattr(result, "error", None):
                         report["status"], report["error"] = "error", result.error
                         break
                 report["summary"] = "Ran without an LLM."
-                _log_run(spec, started, report)
+                _log_run(spec, started, report, state.get("user_id"))
                 log.info("%s finished: %s", spec.name, report["status"])
                 return {"reports": [report]}
             agent = create_agent(
@@ -81,7 +85,7 @@ def make_agent_node(spec: AgentSpec):
                 report["status"], report["error"] = "error", "agent called no tools"
         except Exception as e:  # noqa: BLE001 - one agent failing must not take the run down
             report["status"], report["error"] = "error", f"{type(e).__name__}: {e}"[:500]
-        _log_run(spec, started, report)
+        _log_run(spec, started, report, state.get("user_id"))
         log.info("%s finished: %s, %d tool calls%s", spec.name, report["status"], len(report["tool_calls"]),
                  f" - {report['error']}" if report["error"] else "")
         return {"reports": [report]}

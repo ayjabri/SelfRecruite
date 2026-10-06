@@ -18,29 +18,41 @@ KEPT, FILTERED = "kept", "filtered"
 SAMPLE = 8
 
 
-def _profile_includes() -> list[str]:
-    """Title keywords every active user asked for, so the crawl parses what any of them wants."""
+def _profile_states() -> tuple[str, ...] | None:
+    """States every active user allows, united, so the crawl keeps what any of them wants.
+    None when a profile allows anywhere (no state gate), or before the users table exists."""
     try:
         from jobagent.models import Profile
         with session() as s:
             scopes = s.scalars(select(Profile.scope)).all()
-    except Exception:  # noqa: BLE001 - before the migration ran, or no database: templates only
-        return []
-    return [k for scope in scopes for k in ((scope or {}).get("title") or {}).get("include") or []]
+    except Exception:  # noqa: BLE001 - before the migration ran, or no database
+        return None
+    states: set[str] = set()
+    for scope in scopes:
+        allowed = ((scope or {}).get("location") or {}).get("allowed_states") or []
+        if not allowed:
+            return None
+        states |= {str(s).upper() for s in allowed}
+    return tuple(sorted(states)) if states else None
 
 
 @lru_cache
 def load_filters() -> dict:
+    """The crawl keeps every title (each user's title keywords are applied in their own scope);
+    it only drops postings by location: outside the US, or outside every user's states."""
     path = get_settings().filters_file
     cfg = (yaml.safe_load(path.read_text()) if path.exists() else None) or {}
-    title, location = cfg.get("title") or {}, cfg.get("location") or {}
+    location = cfg.get("location") or {}
+    states = _profile_states()
+    if states is None:
+        states = tuple(str(s).upper() for s in location.get("allowed_states") or ())
     return {
-        "include": phrase_regex([*(title.get("include") or []), *_profile_includes()]),
-        "exclude": phrase_regex(title.get("exclude") or []),
+        "include": None,
+        "exclude": None,
         "us_only": bool(location.get("us_only", True)),
         "extra_us": tuple(location.get("extra_us") or ()),
         "extra_non_us": tuple(location.get("extra_non_us") or ()),
-        "allowed_states": tuple(str(s).upper() for s in location.get("allowed_states") or ()),
+        "allowed_states": states,
     }
 
 
@@ -54,11 +66,12 @@ def location_states(location_text: str) -> set[str]:
 
 
 def evaluate(posting: NormalizedPosting, cfg: dict | None = None) -> tuple[bool, str]:
-    """(keep?, reason). Reasons start with a category so they can be counted."""
+    """(keep?, reason). Reasons start with a category so they can be counted.
+    Title keywords, when given in cfg, apply too (a user's scope reuses this); the crawl passes none."""
     cfg = cfg or load_filters()
-    if cfg["exclude"] and (m := cfg["exclude"].search(posting.title)):
+    if cfg.get("exclude") and (m := cfg["exclude"].search(posting.title)):
         return False, f"excluded title keyword: {m.group(0).lower()}"
-    if cfg["include"] and not cfg["include"].search(posting.title):
+    if cfg.get("include") and not cfg["include"].search(posting.title):
         return False, "no target title keyword"
     if cfg["us_only"]:
         where, place = classify_location(posting.location_text, cfg["extra_us"], cfg["extra_non_us"])
@@ -95,8 +108,9 @@ class FilterResult(BaseModel):
 @tool_spec(
     name="filter_pending_postings",
     description=(
-        "Apply the title and location pre-filter (config/filters.yaml) to stored postings that have not "
-        "been checked yet. Kept postings go on to extraction; filtered ones stay stored but are skipped. "
+        "Apply the crawl's location pre-filter (US only, and the states any user allows) to stored postings "
+        "that have not been checked yet. Kept postings go on to parsing; filtered ones stay stored but are "
+        "skipped. Titles are not filtered here: each user's title keywords are applied in their own scope. "
         "No LLM is used. Returns counts, the reasons for filtering, and a few sample titles."
     ),
 )

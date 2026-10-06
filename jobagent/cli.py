@@ -5,6 +5,8 @@
   jobagent agents                        show the registered agents
   jobagent pipeline "<request>"          run the orchestrator graph
   jobagent pipeline --resume <thread>    continue a run that stopped part-way
+  jobagent score [--user N]              the per-user stages only (scope, fast score, judgement)
+  jobagent secret-key                    print a new SECRET_KEY for .env
   jobagent ui                            start the job review web page
 """
 import argparse
@@ -30,6 +32,9 @@ def main(argv: list[str] | None = None) -> int:
     pipe = sub.add_parser("pipeline", help="run the orchestrator graph")
     pipe.add_argument("request", nargs="?", default="Daily pull of all configured targets.")
     pipe.add_argument("--resume", metavar="THREAD", help="thread id of a run to continue")
+    score = sub.add_parser("score", help="run the per-user stages (scope, fast score, judgement) with no orchestrator")
+    score.add_argument("--user", type=int, default=None, help="user id (default: DEFAULT_USER_ID)")
+    sub.add_parser("secret-key", help="print a new SECRET_KEY for .env")
     ui = sub.add_parser("ui", help="start the job review web page")
     ui.add_argument("--host", default="127.0.0.1", help="address to listen on (default: this machine only)")
     ui.add_argument("--port", type=int, default=8765)
@@ -50,6 +55,19 @@ def main(argv: list[str] | None = None) -> int:
         uvicorn.run("jobagent.web.app:app", host=args["host"], port=args["port"], log_level="warning",
                     reload=True, reload_dirs=[str(Path(__file__).parent / "web")])
         return 0
+    if args["cmd"] == "secret-key":
+        from jobagent.secrets import new_key
+        print(f"SECRET_KEY={new_key()}")
+        return 0
+    if args["cmd"] == "score":
+        from jobagent.agents.graph import run_user_stages
+        from jobagent.users import resolve_user
+        reports = run_user_stages(resolve_user(args["user"]))
+        for r in reports:
+            print(f"{r['agent']}: {r['status']}" + (f" - {r['error']}" if r["error"] else ""))
+            for c in r["tool_calls"]:
+                print("  " + json.dumps({c["tool"]: c["result"]})[:600])
+        return 1 if any(r["status"] != "ok" for r in reports) else 0
     if args["cmd"] == "pipeline":
         from jobagent.agents.graph import run_pipeline
         thread, state = run_pipeline(args["request"], thread_id=args["resume"], resume=bool(args["resume"]))

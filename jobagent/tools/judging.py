@@ -5,9 +5,11 @@ import logging
 from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
+from datetime import time as _time
+
 from sqlalchemy import func, select
 
-from jobagent.config import get_settings
+from jobagent.llm import get_chat_model, model_spec, user_llm
 from jobagent.db import session
 from jobagent.judge.core import judge
 from jobagent.models import Company, GoldenChunk, Job, UserJob
@@ -103,7 +105,7 @@ def judge_job(args: JudgeJobInput) -> JudgeResult:
         return JudgeResult(job_id=args.job_id, outcome="failed", title=job.title, error="no requirements found in the posting")
     title, parsed = job.title, ParsedJob.model_validate(job.parsed) if job.parsed else None
     try:
-        items = judge(title, company, reqs, uid)
+        items = judge(title, company, reqs, uid, model=get_chat_model(user_id=uid))
     except Exception as e:  # noqa: BLE001 - one bad job must not stop the batch
         return JudgeResult(job_id=args.job_id, outcome="failed", title=title, error=f"{type(e).__name__}: {e}"[:300])
 
@@ -125,7 +127,7 @@ def judge_job(args: JudgeJobInput) -> JudgeResult:
         row.match_details = {"items": items, "components": {"required": round(m, 2), "preferred": round(p, 2),
                              "title_family": f, "seniority": sen, "domain": d}, "gates": gates,
                              "requirements_from": "parser" if parsed and parsed.sections_quality == "labelled" else "llm"}
-        row.match_model, row.golden_source_sha, row.scored_at = get_settings().llm_model, sha, now
+        row.match_model, row.golden_source_sha, row.scored_at = model_spec(uid), sha, now
     return JudgeResult(job_id=args.job_id, outcome="judged", title=title, match_score=score, explanation=explanation)
 
 
@@ -165,13 +167,25 @@ def _candidates(uid: int, min_fit: int):
 def judge_jobs(args: JudgeJobsInput) -> JudgeJobsResult:
     uid = resolve_user(args.user_id)
     out = JudgeJobsResult()
+    limit = args.limit
+    if user_llm(uid) is None:  # on the shared model, each user gets a daily budget
+        budget = int((get_profile(uid)["llm"] or {}).get("judge_budget_per_day") or 0)
+        if budget:
+            today = datetime.combine(datetime.now(timezone.utc).date(), _time.min, tzinfo=timezone.utc)
+            with session() as s:
+                used = s.scalar(select(func.count()).select_from(UserJob).where(
+                    UserJob.user_id == uid, UserJob.scored_at >= today))
+            limit = min(limit, budget - used)
+            if limit <= 0:
+                out.error = f"daily judgement budget of {budget} used up; connect your own Claude or OpenAI account to lift it"
+                return out
     base = _candidates(uid, args.min_fit_score)
     if not args.rejudge:
         base = base.where(UserJob.match_score.is_(None))
     with session() as s:
         ids = list(s.scalars(base.order_by(
             UserJob.favorite.desc(), (UserJob.user_label == "interested").desc(), UserJob.fit_score.desc(), UserJob.job_id
-        ).limit(args.limit)))
+        ).limit(limit)))
     for n, job_id in enumerate(ids, 1):
         r = judge_job(JudgeJobInput(user_id=uid, job_id=job_id, force=args.rejudge))
         setattr(out, r.outcome, getattr(out, r.outcome) + 1) if r.outcome in ("judged", "already_judged", "failed") else None

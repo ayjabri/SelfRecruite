@@ -21,8 +21,7 @@ from rapidfuzz import fuzz
 from sqlalchemy import func, select
 
 from jobagent.db import session
-from jobagent.models import Job, JobSource, PossibleDuplicate, RawPosting, UserJob
-from jobagent.tools.filtering import KEPT
+from jobagent.models import Job, PossibleDuplicate, UserJob
 from jobagent.tools.registry import tool_spec
 
 log = logging.getLogger(__name__)
@@ -121,10 +120,8 @@ class DedupResult(BaseModel):
 )
 def dedup_jobs(args: DedupInput) -> DedupResult:
     out = DedupResult(dry_run=args.dry_run)
-    kept = (
-        select(JobSource.job_id).join(RawPosting, RawPosting.id == JobSource.raw_id)
-        .where(JobSource.job_id == Job.id, RawPosting.filter_status == KEPT).exists()
-    )
+    # a pair is only worth a person's time if someone has one of its jobs in scope
+    kept = select(UserJob.job_id).where(UserJob.job_id == Job.id, UserJob.in_scope).exists()
     with session() as s, s.begin():
         rows = s.execute(
             select(Job.id, Job.company_id, Job.title_norm, Job.description_text, Job.embedding,

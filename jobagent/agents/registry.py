@@ -12,6 +12,9 @@ class AgentSpec:
     prompt: str                       # the agent's own system prompt
     tools: tuple[str, ...]            # names in jobagent.tools.TOOLS
     order: int = 0                    # stages only
+    # stages only: "crawl" runs once on the shared job pool; "user" runs once per active user
+    # (its tools get user_id) after every crawl stage has finished
+    scope: Literal["crawl", "user"] = "crawl"
     default_task: str = ""            # stages only: what to do when the orchestrator proceeds
     config_key: str | None = None     # sources only: section of companies.yaml listing its targets
     # True for a stage with nothing to decide: each of its tools is called in order with
@@ -33,5 +36,6 @@ def sources() -> list[AgentSpec]:
     return [a for a in AGENTS.values() if a.kind == "source"]
 
 
-def stages() -> list[AgentSpec]:
-    return sorted((a for a in AGENTS.values() if a.kind == "stage"), key=lambda a: a.order)
+def stages(scope: str | None = None) -> list[AgentSpec]:
+    return sorted((a for a in AGENTS.values() if a.kind == "stage" and (scope is None or a.scope == scope)),
+                  key=lambda a: a.order)

@@ -28,6 +28,7 @@ from jobagent.web import configs, runs
 
 app = FastAPI(title="jobagent review")
 INDEX = Path(__file__).with_name("index.html")
+runs.recover()
 
 
 def current_user() -> int:
@@ -227,7 +228,8 @@ def list_duplicates():
             .join(Company, Company.id == A.c.company_id)
             .outerjoin(UA, (UA.c.job_id == A.c.id) & (UA.c.user_id == uid))
             .outerjoin(UB, (UB.c.job_id == B.c.id) & (UB.c.user_id == uid))
-            .where(PossibleDuplicate.status == "pending", A.c.duplicate_of.is_(None), B.c.duplicate_of.is_(None))
+            .where(PossibleDuplicate.status == "pending", A.c.duplicate_of.is_(None), B.c.duplicate_of.is_(None),
+                   func.coalesce(UA.c.in_scope, False) | func.coalesce(UB.c.in_scope, False))
             .order_by(PossibleDuplicate.similarity.desc())
         ).all()
         return [{
@@ -266,10 +268,14 @@ def summary():
     uid = current_user()
     with session() as s:
         A, B = Job.__table__.alias("a"), Job.__table__.alias("b")
-        pending = s.scalar(  # pairs still open whose jobs were not merged some other way since
+        UA, UB = UserJob.__table__.alias("ua"), UserJob.__table__.alias("ub")
+        pending = s.scalar(  # open pairs, not merged some other way since, with a job in your scope
             select(func.count()).select_from(PossibleDuplicate)
             .join(A, A.c.id == PossibleDuplicate.job_a).join(B, B.c.id == PossibleDuplicate.job_b)
-            .where(PossibleDuplicate.status == "pending", A.c.duplicate_of.is_(None), B.c.duplicate_of.is_(None)))
+            .outerjoin(UA, (UA.c.job_id == A.c.id) & (UA.c.user_id == uid))
+            .outerjoin(UB, (UB.c.job_id == B.c.id) & (UB.c.user_id == uid))
+            .where(PossibleDuplicate.status == "pending", A.c.duplicate_of.is_(None), B.c.duplicate_of.is_(None),
+                   func.coalesce(UA.c.in_scope, False) | func.coalesce(UB.c.in_scope, False)))
         scoped = (select(Job.id, UserJob.user_label, Job.company_id, UserJob.favorite, UserJob.applied_at)
                   .join(UserJob, _mine(uid)).where(UserJob.in_scope, Job.duplicate_of.is_(None)).subquery())
         counts = dict(s.execute(select(scoped.c.user_label, func.count()).group_by(scoped.c.user_label)).all())
@@ -312,7 +318,7 @@ def _field_type(annotation) -> str:
 
 
 class RunBody(BaseModel):
-    command: Literal["pipeline", "run"]
+    command: Literal["pipeline", "run", "score"]
     request: str | None = None            # pipeline: the orchestrator's instruction
     tool: str | None = None               # run: the tool name
     args: dict[str, object] = {}          # run: its arguments
@@ -323,6 +329,9 @@ def start_run(body: RunBody):
     if body.command == "pipeline":
         argv = ["pipeline", body.request or "Daily pull of all configured targets."]
         label = f"pipeline: {argv[1][:80]}"
+    elif body.command == "score":
+        argv = ["score", "--user", str(current_user())]
+        label = "score my jobs (scope, fast score, judgement)"
     else:
         if body.tool not in TOOLS:
             raise HTTPException(400, "unknown tool")
@@ -331,15 +340,12 @@ def start_run(body: RunBody):
             clean["user_id"] = current_user()
         argv = ["run", body.tool, "--json", json.dumps(clean)]
         label = f"{body.tool} {json.dumps({k: v for k, v in clean.items() if k != 'user_id'})}"[:120]
-    try:
-        return runs.start(argv, label)
-    except RuntimeError as e:
-        raise HTTPException(409, str(e)) from e
+    return runs.start(argv, label, current_user())
 
 
 @app.get("/api/runs")
 def list_runs():
-    return {"running": (r := runs.running()) and {k: v for k, v in r.items() if k != "proc"}, "runs": runs.load_runs()}
+    return {"running": (r := runs.running()) and runs._public(r), "active": runs.active(), "runs": runs.load_runs()}
 
 
 @app.get("/api/runs/{run_id}")

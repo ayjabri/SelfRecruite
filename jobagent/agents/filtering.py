@@ -4,7 +4,7 @@ register_agent(AgentSpec(
     name="filter_agent",
     kind="stage",
     order=5,
-    description="Drops stored postings outside the target job titles, outside the US, or outside the allowed states (NY/NJ unless the request says otherwise), before parsing.",
+    description="Drops stored postings outside the US or outside every user's allowed states, before parsing.",
     default_task="Apply the pre-filter to every stored posting that has not been checked yet.",
     prompt=(
         "You are the pre-filter agent. You decide nothing yourself: the rules are in a config file and "

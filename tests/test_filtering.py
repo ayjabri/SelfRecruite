@@ -51,10 +51,28 @@ def test_evaluate_order_and_reasons():
     assert evaluate(_p("AI Product Manager", "Remote"), CFG)[0]  # unclear location is kept
 
 
-def test_shipped_filters_file_loads():
-    from jobagent.tools.filtering import load_filters
-    cfg = load_filters()
-    assert cfg["include"].search("Senior Treasury Analyst") and cfg["exclude"].search("Summer Internship")
+def test_crawl_keeps_every_title(monkeypatch):
+    """The crawl filters by location only; title keywords belong to each user's scope."""
+    from jobagent.tools import filtering
+    monkeypatch.setattr(filtering, "_profile_states", lambda: ("NY", "NJ"))
+    filtering.load_filters.cache_clear()
+    cfg = filtering.load_filters()
+    assert cfg["include"] is None and cfg["exclude"] is None and cfg["allowed_states"] == ("NY", "NJ")
+    assert evaluate(_p("Relationship Banker", "New York, NY"), cfg) == (True, "matched")
+    assert evaluate(_p("Relationship Banker", "Plano, TX"), cfg)[0] is False
+    filtering.load_filters.cache_clear()
+
+
+def test_user_scope_applies_title_and_states():
+    from jobagent.tools.scoring import job_in_scope
+    scope = {"title": {"include": ["treasury"], "exclude": ["sales"]}, "location": {"allowed_states": ["NY"], "remote_ok": True}}
+    ny, tx = [{"city": "New York", "state": "NY"}], [{"city": "Plano", "state": "TX"}]
+    assert job_in_scope("Treasury Lead", ny, "hybrid", scope) == (True, "matched")
+    assert job_in_scope("Treasury Sales Lead", ny, "hybrid", scope)[1].startswith("excluded")
+    assert job_in_scope("Banker", ny, "hybrid", scope)[1] == "no target title keyword"
+    assert job_in_scope("Treasury Lead", tx, "hybrid", scope)[1].startswith("outside NY")
+    assert job_in_scope("Treasury Lead", tx, "remote", scope)[0] is True
+    assert job_in_scope("Treasury Lead", [], "hybrid", scope)[0] is True
 
 
 @pytest.mark.parametrize("location,kept", [

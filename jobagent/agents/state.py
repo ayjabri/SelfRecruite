@@ -40,3 +40,9 @@ class AgentTask(TypedDict):
     """Payload sent to a source agent by the orchestrator."""
     task: str
     request: str
+
+
+class UserTask(TypedDict):
+    """Payload sent to the per-user stages, one per active user."""
+    user_id: int
+    request: str

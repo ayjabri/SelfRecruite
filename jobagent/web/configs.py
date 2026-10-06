@@ -26,6 +26,8 @@ PROFILE_SECTIONS = {
                         "note": "Re-check stored postings so newly wanted titles get parsed; your scope and scores update on the next fast score"}},
     "skills": {"title": "Skills", "description": "Skills you have beyond what your resume text mentions, and ones not to claim.",
                "after": None},
+    "llm": {"title": "AI account", "description": "Use the shared local model, or connect your own Claude or OpenAI account for judgement and tailoring.",
+            "after": None},
 }
 FILES = {
     "companies": {"title": "Companies", "description": "Which employers the shared crawl pulls from.", "after": None},
@@ -64,7 +66,32 @@ def _plain(obj):
     return obj
 
 
+def _llm_view(llm: dict) -> dict:
+    """What the page may see of the llm section: never the key itself."""
+    return {"provider": llm.get("provider") or "shared", "model": llm.get("model") or "",
+            "has_key": bool(llm.get("api_key_enc")), "judge_budget_per_day": llm.get("judge_budget_per_day", 20)}
+
+
+def _llm_save(user_id: int | None, data: dict) -> dict:
+    from jobagent.secrets import encrypt
+    current = get_profile(user_id)["llm"] or {}
+    new = {"provider": data.get("provider") or "shared", "model": (data.get("model") or "").strip() or None,
+           "judge_budget_per_day": current.get("judge_budget_per_day", 20)}
+    if data.get("judge_budget_per_day") not in (None, ""):
+        new["judge_budget_per_day"] = int(data["judge_budget_per_day"])
+    key = (data.get("api_key") or "").strip()
+    if data.get("clear_key"):
+        new["api_key_enc"] = None
+    elif key:
+        new["api_key_enc"] = encrypt(key)
+    else:
+        new["api_key_enc"] = current.get("api_key_enc")
+    return new
+
+
 def read(name: str, user_id: int | None = None) -> dict:
+    if name == "llm":
+        return {"name": name, "kind": "profile", **PROFILE_SECTIONS[name], "data": _llm_view(get_profile(user_id)["llm"] or {})}
     if name in PROFILE_SECTIONS:
         return {"name": name, "kind": "profile", **PROFILE_SECTIONS[name], "data": get_profile(user_id)[name]}
     path = _path(name)
@@ -162,7 +189,7 @@ def save_text(name: str, text: str) -> dict:
 def save_data(name: str, data: dict, user_id: int | None = None) -> dict:
     """Save values from the form: into the user's profile, or merged into the file so its comments stay."""
     if name in PROFILE_SECTIONS:
-        save_profile(user_id, **{name: data})
+        save_profile(user_id, **{name: _llm_save(user_id, data) if name == "llm" else data})
         _clear_caches()
         return read(name, user_id)
     path = _path(name)
