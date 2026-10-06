@@ -144,6 +144,7 @@ class JudgeJobsResult(BaseModel):
     failed: int = 0
     remaining: int = 0          # candidates still without a match score
     scores: list[str] = []      # "score title" for what was judged this call
+    note: str | None = None     # e.g. the daily budget is used up: not an error, just nothing to do today
     error: str | None = None
 
 
@@ -177,7 +178,10 @@ def judge_jobs(args: JudgeJobsInput) -> JudgeJobsResult:
                     UserJob.user_id == uid, UserJob.scored_at >= today))
             limit = min(limit, budget - used)
             if limit <= 0:
-                out.error = f"daily judgement budget of {budget} used up; connect your own Claude or OpenAI account to lift it"
+                out.note = f"daily judgement budget of {budget} used up; more tomorrow, or connect your own Claude or OpenAI account to lift it"
+                with session() as s:
+                    out.remaining = s.scalar(select(func.count()).select_from(
+                        _candidates(uid, args.min_fit_score).where(UserJob.match_score.is_(None)).subquery()))
                 return out
     base = _candidates(uid, args.min_fit_score)
     if not args.rejudge:

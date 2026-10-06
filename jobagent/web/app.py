@@ -66,6 +66,8 @@ async def hardening(request: Request, call_next):
     if (length := request.headers.get("content-length")) and int(length) > MAX_BODY:
         return JSONResponse({"detail": "request too large"}, status_code=413)
     response = await call_next(request)
+    if request.url.path.startswith("/static/") or request.url.path in ("/", "/login"):
+        response.headers["Cache-Control"] = "no-cache"  # always revalidate; the ?v= tag makes new files load
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "same-origin")
@@ -109,9 +111,29 @@ def healthz():
     return {"ok": True}
 
 
+STATIC = Path(__file__).with_name("static")
+
+
+@lru_cache(maxsize=8)
+def _asset_version(stamp: float) -> str:
+    """A short tag that changes whenever any static file changes, so browsers never serve stale scripts."""
+    import hashlib
+    h = hashlib.sha1()
+    for f in sorted(STATIC.iterdir()):
+        h.update(f"{f.name}:{f.stat().st_mtime_ns}".encode())
+    return h.hexdigest()[:10]
+
+
+def _page(path: Path) -> str:
+    stamp = max(f.stat().st_mtime for f in STATIC.iterdir())
+    v = _asset_version(stamp)
+    return path.read_text().replace('src="/static/', f'src="/static/').replace('.js"></script>', f'.js?v={v}"></script>') \
+        .replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
-    return INDEX.read_text()
+    return _page(INDEX)
 
 
 @app.get("/login", response_class=HTMLResponse)
