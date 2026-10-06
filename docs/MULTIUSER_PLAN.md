@@ -1,6 +1,6 @@
 # Multi-user plan — Self Recruiter (AI) as a platform
 
-Date: Oct 6, 2026. Status: **approved Oct 6, 2026. Phases 1 and 2 done (Oct 6); Phase 3 (auth) next.**
+Date: Oct 6, 2026. Status: **approved Oct 6, 2026. Phases 1-3 done (Oct 6); Phase 4 (UI: onboarding, admin tab) next.**
 
 ## Goal
 
@@ -157,13 +157,27 @@ Config files keep one job: **defaults for a new profile** (`config/*.yaml` → t
   the shared model (default 20; own account lifts it). `get_chat_model(user_id=...)` picks the
   user's account; `user_jobs.match_model` records which model judged.
 
+## Phase 3 as built (Oct 6, 2026)
+
+- `jobagent/auth.py`: argon2id passwords (pwdlib), `sessions` table (migration `e5f6a7b8c9d0`)
+  holding the SHA-256 of a random cookie token plus a CSRF token, 30-day sessions
+  (`SESSION_DAYS`), `COOKIE_SECURE` for HTTPS, `REGISTRATION_OPEN`, a per-email / per-address
+  login rate limit (5 failures in 5 min → 1 min lockout).
+- Web: a middleware resolves the cookie on every request; pages redirect to `/login`, API calls
+  get 401; every non-GET API call must send `X-CSRF-Token`. Endpoints: register, login, logout,
+  me, change password, users (admin). Admin-only: crawl / raw tool runs, shared config files,
+  tool list, other users' runs. Members get "score my jobs", their profile sections, resume,
+  account.
+- CLI: `jobagent users`, `jobagent passwd --user N [--email E]` to claim the admin account (user 1).
+- Not built yet: password reset by email (needs SMTP), Google sign-in, delete-account (Phase 5).
+
 ## Order and effort
 
 | Phase | Depends on | Rough size |
 |---|---|---|
 | 1 Data model split + migration | — | done |
 | 2 Per-user tools, two pipelines, worker | 1 | done |
-| 3 Auth | 1 | 1 session |
+| 3 Auth | 1 | done |
 | 4 UI (onboarding, login, split files, admin) | 2, 3 | 2–3 sessions |
 | 5 Hardening | 3, 4 | 1 session |
 

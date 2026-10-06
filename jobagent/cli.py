@@ -7,6 +7,8 @@
   jobagent pipeline --resume <thread>    continue a run that stopped part-way
   jobagent score [--user N]              the per-user stages only (scope, fast score, judgement)
   jobagent secret-key                    print a new SECRET_KEY for .env
+  jobagent users                         list accounts
+  jobagent passwd --user N [--email E]   set a user's password (prompts), e.g. to claim the admin account
   jobagent ui                            start the job review web page
 """
 import argparse
@@ -35,6 +37,11 @@ def main(argv: list[str] | None = None) -> int:
     score = sub.add_parser("score", help="run the per-user stages (scope, fast score, judgement) with no orchestrator")
     score.add_argument("--user", type=int, default=None, help="user id (default: DEFAULT_USER_ID)")
     sub.add_parser("secret-key", help="print a new SECRET_KEY for .env")
+    sub.add_parser("users", help="list accounts")
+    pw = sub.add_parser("passwd", help="set a user's password (and optionally email); prompts for the password")
+    pw.add_argument("--user", type=int, required=True, help="user id (1 = the admin created by the migration)")
+    pw.add_argument("--email", default=None, help="also change the account's email")
+    pw.add_argument("--password", default=None, help="the new password (prompted for if omitted)")
     ui = sub.add_parser("ui", help="start the job review web page")
     ui.add_argument("--host", default="127.0.0.1", help="address to listen on (default: this machine only)")
     ui.add_argument("--port", type=int, default=8765)
@@ -58,6 +65,28 @@ def main(argv: list[str] | None = None) -> int:
     if args["cmd"] == "secret-key":
         from jobagent.secrets import new_key
         print(f"SECRET_KEY={new_key()}")
+        return 0
+    if args["cmd"] == "users":
+        from sqlalchemy import select
+        from jobagent.db import session
+        from jobagent.models import User
+        with session() as s:
+            for u in s.scalars(select(User).order_by(User.id)):
+                print(f"{u.id:>3}  {u.email:<32} {u.role:<7} {u.status:<9} {'password set' if u.password_hash else 'NO PASSWORD'}  {u.name or ''}")
+        return 0
+    if args["cmd"] == "passwd":
+        import getpass
+        from jobagent.auth import AuthError, set_password
+        password = args["password"] or getpass.getpass("New password: ")
+        if not args["password"] and password != getpass.getpass("Again: "):
+            print("passwords differ", file=sys.stderr)
+            return 1
+        try:
+            set_password(args["user"], password, args["email"])
+        except AuthError as e:
+            print(e, file=sys.stderr)
+            return 1
+        print(f"password set for user {args['user']}" + (f", email {args['email']}" if args["email"] else ""))
         return 0
     if args["cmd"] == "score":
         from jobagent.agents.graph import run_user_stages

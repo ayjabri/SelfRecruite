@@ -26,6 +26,19 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
 
+class Session(Base):
+    """A signed-in browser. The cookie holds the raw token; only its hash is stored."""
+    __tablename__ = "sessions"
+
+    token_hash: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    csrf: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    last_seen_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+    user_agent: Mapped[str | None] = mapped_column(Text)
+
+
 class Profile(Base):
     """What one user is looking for. The shapes mirror the config/*.yaml templates."""
     __tablename__ = "profiles"

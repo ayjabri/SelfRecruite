@@ -28,6 +28,7 @@ dependencies = [
     "pillow",
     "ruamel.yaml",
     "cryptography",
+    "pwdlib[argon2]",
     "langchain-anthropic",
     "langchain-openai",
 ]

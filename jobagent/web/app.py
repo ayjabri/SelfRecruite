@@ -1,8 +1,9 @@
 """Review UI: browse scored jobs and mark the ones you are interested in.
 
-Every request acts as one user. Until sign-in exists that is DEFAULT_USER_ID (see jobagent.users);
-`current_user()` is the single place to swap in a session lookup later.
+Every request acts as the signed-in user. A middleware resolves the session cookie once per
+request and `current_user()` reads it; admin-only endpoints call `require_admin()`.
 """
+import contextvars
 import io
 import json
 from datetime import datetime, timedelta, timezone
@@ -10,34 +11,154 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, Response
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 
+from jobagent import auth
 from jobagent.config import ROOT
 from jobagent.db import session
-from jobagent.models import Company, Job, JobSource, PossibleDuplicate, RawPosting, UserJob
+from jobagent.models import Company, Job, JobSource, PossibleDuplicate, RawPosting, User, UserJob
 from jobagent.skills import skill_gap
 from jobagent.tools import TOOLS
 from jobagent.tools.common import NORMALIZERS
 from jobagent.tools.dedup import DecideDuplicateInput, decide_duplicate
 from jobagent.tools.scoring import AnnotateJobInput, LabelJobInput, annotate_job, in_scope, label_job
-from jobagent.users import DEFAULT_USER_ID
 from jobagent.web import configs, runs
 
 app = FastAPI(title="jobagent review")
 INDEX = Path(__file__).with_name("index.html")
+LOGIN = Path(__file__).with_name("login.html")
 runs.recover()
+
+_request_user: contextvars.ContextVar[User | None] = contextvars.ContextVar("user", default=None)
+_request_csrf: contextvars.ContextVar[str | None] = contextvars.ContextVar("csrf", default=None)
+PUBLIC = ("/login", "/logo.png", "/api/auth/status", "/api/auth/login", "/api/auth/register")
+
+
+@app.middleware("http")
+async def sign_in_gate(request: Request, call_next):
+    """Resolve the session cookie; block API calls without one; check CSRF on writes."""
+    found = auth.resolve_session(request.cookies.get(auth.COOKIE))
+    user, csrf = found if found else (None, None)
+    _request_user.set(user)
+    _request_csrf.set(csrf)
+    path = request.url.path
+    if user is None and path not in PUBLIC:
+        if path.startswith("/api/"):
+            return JSONResponse({"detail": "sign in first"}, status_code=401)
+        return RedirectResponse("/login", status_code=303)
+    if user is not None and path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS") \
+            and path not in PUBLIC and request.headers.get("x-csrf-token") != csrf:
+        return JSONResponse({"detail": "missing or stale CSRF token; reload the page"}, status_code=403)
+    return await call_next(request)
 
 
 def current_user() -> int:
-    return DEFAULT_USER_ID
+    user = _request_user.get()
+    if user is None:
+        raise HTTPException(401, "sign in first")
+    return user.id
+
+
+def require_admin() -> User:
+    user = _request_user.get()
+    if user is None:
+        raise HTTPException(401, "sign in first")
+    if user.role != "admin":
+        raise HTTPException(403, "admin only")
+    return user
+
+
+def _set_cookie(response: Response, token: str) -> None:
+    response.set_cookie(auth.COOKIE, token, max_age=auth.SESSION_DAYS * 86400, httponly=True,
+                        samesite="lax", secure=auth.COOKIE_SECURE, path="/")
 
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return INDEX.read_text()
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page() -> str:
+    return LOGIN.read_text()
+
+
+# --- auth ------------------------------------------------------------------------------------
+
+class Credentials(BaseModel):
+    email: str
+    password: str
+    name: str | None = None
+
+
+@app.get("/api/auth/status")
+def auth_status():
+    return {"signed_in": _request_user.get() is not None, "registration_open": auth.REGISTRATION_OPEN}
+
+
+def _sign_in(user: User, request: Request) -> JSONResponse:
+    token, csrf = auth.create_session(user.id, request.headers.get("user-agent"))
+    response = JSONResponse({"id": user.id, "email": user.email, "name": user.name, "role": user.role, "csrf": csrf})
+    _set_cookie(response, token)
+    return response
+
+
+@app.post("/api/auth/register")
+def register(body: Credentials, request: Request):
+    try:
+        user = auth.register(body.email, body.password, body.name)
+    except auth.AuthError as e:
+        raise HTTPException(e.status, str(e))
+    return _sign_in(user, request)
+
+
+@app.post("/api/auth/login")
+def login(body: Credentials, request: Request):
+    try:
+        user = auth.authenticate(body.email, body.password, request.client.host if request.client else "")
+    except auth.AuthError as e:
+        raise HTTPException(e.status, str(e))
+    return _sign_in(user, request)
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request):
+    auth.destroy_session(request.cookies.get(auth.COOKIE))
+    response = JSONResponse({"signed_out": True})
+    response.delete_cookie(auth.COOKIE, path="/")
+    return response
+
+
+@app.get("/api/auth/me")
+def me():
+    user = _request_user.get()
+    return {"id": user.id, "email": user.email, "name": user.name, "role": user.role, "csrf": _request_csrf.get()}
+
+
+class PasswordChange(BaseModel):
+    current: str
+    new: str
+
+
+@app.post("/api/auth/password")
+def change_password(body: PasswordChange, request: Request):
+    try:
+        auth.change_password(current_user(), body.current, body.new, keep_token=request.cookies.get(auth.COOKIE))
+    except auth.AuthError as e:
+        raise HTTPException(e.status, str(e))
+    return {"changed": True}
+
+
+@app.get("/api/users")
+def list_users():
+    require_admin()
+    with session() as s:
+        return [{"id": u.id, "email": u.email, "name": u.name, "role": u.role, "status": u.status,
+                 "created_at": u.created_at.date().isoformat(), "has_password": bool(u.password_hash)}
+                for u in s.scalars(select(User).order_by(User.id))]
 
 
 LOGO_SOURCE = ROOT / "docs" / "phoenix1.png"
@@ -296,6 +417,7 @@ def summary():
 @app.get("/api/tools")
 def list_tools():
     """Registered tools with their input schema, so the page can build a form for each."""
+    require_admin()
     return [{
         "name": spec.name, "description": spec.description,
         "fields": [{
@@ -326,6 +448,8 @@ class RunBody(BaseModel):
 
 @app.post("/api/runs")
 def start_run(body: RunBody):
+    if body.command != "score":
+        require_admin()  # the crawl and raw tools touch everyone's data
     if body.command == "pipeline":
         argv = ["pipeline", body.request or "Daily pull of all configured targets."]
         label = f"pipeline: {argv[1][:80]}"
@@ -345,19 +469,30 @@ def start_run(body: RunBody):
 
 @app.get("/api/runs")
 def list_runs():
-    return {"running": (r := runs.running()) and runs._public(r), "active": runs.active(), "runs": runs.load_runs()}
+    """Admins see every run; members only their own."""
+    user = _request_user.get()
+    mine = lambda r: user.role == "admin" or r.get("user_id") == user.id  # noqa: E731
+    running = runs.running()
+    return {"running": running and mine(running) and runs._public(running),
+            "active": [r for r in runs.active() if mine(r)], "runs": [r for r in runs.load_runs() if mine(r)]}
 
 
-@app.get("/api/runs/{run_id}")
-def get_run(run_id: str):
+def _visible_run(run_id: str) -> dict:
     run = runs.get(run_id)
-    if run is None:
+    user = _request_user.get()
+    if run is None or (user.role != "admin" and run.get("user_id") != user.id):
         raise HTTPException(404, "no such run")
     return run
 
 
+@app.get("/api/runs/{run_id}")
+def get_run(run_id: str):
+    return _visible_run(run_id)
+
+
 @app.post("/api/runs/{run_id}/stop")
 def stop_run(run_id: str):
+    _visible_run(run_id)
     return {"stopped": runs.stop(run_id)}
 
 
@@ -365,11 +500,16 @@ def stop_run(run_id: str):
 
 @app.get("/api/config")
 def list_config():
-    return configs.read_all(current_user())
+    items = configs.read_all(current_user())
+    if _request_user.get().role != "admin":
+        items = [c for c in items if c["kind"] == "profile"]
+    return items
 
 
 @app.get("/api/config/{name}")
 def get_config(name: str):
+    if name not in configs.PROFILE_SECTIONS:
+        require_admin()
     try:
         return {**configs.read(name, current_user()), "backups": configs.backups(name)}
     except KeyError:
@@ -383,6 +523,8 @@ class ConfigBody(BaseModel):
 
 @app.put("/api/config/{name}")
 def put_config(name: str, body: ConfigBody):
+    if name not in configs.PROFILE_SECTIONS:
+        require_admin()
     try:
         if body.text is not None:
             if name in configs.PROFILE_SECTIONS:

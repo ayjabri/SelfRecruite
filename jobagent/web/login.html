@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Self Recruiter (AI) · Sign in</title>
+<style>
+  :root { --bg: #f6f7f9; --panel: #fff; --line: #dfe3e8; --text: #1c2330; --muted: #667085; --accent: #2f6fde; --no: #c0392b; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #12151a; --panel: #1a1f27; --line: #2c333f; --text: #e6e9ee; --muted: #94a0b3; --accent: #6ea0ff; --no: #f0776a; } }
+  :root[data-theme="dark"] { --bg: #12151a; --panel: #1a1f27; --line: #2c333f; --text: #e6e9ee; --muted: #94a0b3; --accent: #6ea0ff; --no: #f0776a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; flex-direction: column; }
+  #banner { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 14px 18px; background: #000; color: #fff; }
+  #banner img { height: 64px; filter: drop-shadow(0 0 10px rgba(255,140,40,.55)); }
+  #banner .brand { font-size: 28px; font-weight: 800; } #banner .brand span { color: #ffc857; }
+  main { flex: 1; display: grid; place-items: center; padding: 24px 16px; }
+  .card { width: 100%; max-width: 420px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 18px; font-size: 14px; }
+  label { display: block; font-weight: 600; font-size: 13px; margin: 12px 0 4px; }
+  input { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+  button { width: 100%; margin-top: 18px; font: inherit; font-weight: 700; color: #fff; background: var(--accent); border: 0; border-radius: 8px; padding: 10px; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: default; }
+  .switch { text-align: center; margin-top: 14px; font-size: 14px; color: var(--muted); }
+  .switch a { color: var(--accent); cursor: pointer; }
+  .msg { min-height: 20px; font-size: 13px; color: var(--no); margin-top: 10px; }
+  .hint { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="banner"><img src="/logo.png" alt=""><div class="brand">Self Recruiter <span>(AI)</span></div></div>
+<main>
+  <form class="card" id="form" autocomplete="on">
+    <h1 id="title">Sign in</h1>
+    <p class="sub" id="subtitle">Your jobs, scored against your resume.</p>
+    <div id="namerow" hidden><label for="name">Name</label><input id="name" autocomplete="name"></div>
+    <label for="email">Email</label><input id="email" type="email" autocomplete="username" required>
+    <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required>
+    <div class="hint" id="pwhint" hidden>At least 10 characters.</div>
+    <button id="submit">Sign in</button>
+    <div class="msg" id="msg"></div>
+    <div class="switch" id="switch">New here? <a id="toggle">Create an account</a></div>
+  </form>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let mode = location.hash === "#register" ? "register" : "login";
+let registrationOpen = true;
+function render() {
+  const reg = mode === "register";
+  $("title").textContent = reg ? "Create your account" : "Sign in";
+  $("subtitle").textContent = reg ? "Then paste your resume and set what you are looking for." : "Your jobs, scored against your resume.";
+  $("namerow").hidden = !reg; $("pwhint").hidden = !reg;
+  $("password").autocomplete = reg ? "new-password" : "current-password";
+  $("submit").textContent = reg ? "Create account" : "Sign in";
+  $("switch").innerHTML = reg ? 'Already have an account? <a id="toggle">Sign in</a>' : (registrationOpen ? 'New here? <a id="toggle">Create an account</a>' : "");
+  $("toggle")?.addEventListener("click", () => { mode = reg ? "login" : "register"; $("msg").textContent = ""; render(); });
+}
+fetch("/api/auth/status").then(r => r.json()).then(s => { registrationOpen = s.registration_open; if (s.signed_in) location.href = "/"; render(); }).catch(render);
+$("form").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("submit").disabled = true; $("msg").textContent = "";
+  const body = {email: $("email").value, password: $("password").value, name: $("name").value};
+  try {
+    const r = await fetch("/api/auth/" + mode, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    location.href = "/";
+  } catch (err) { $("msg").textContent = err.message; $("submit").disabled = false; }
+});
+try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+render();
+</script>
+</body>
+</html>

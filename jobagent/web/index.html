@@ -33,6 +33,7 @@
   #banner .brand { font-size: 30px; font-weight: 800; letter-spacing: .01em; }
   #banner .brand span { font-weight: 700; color: #ffc857; }
   #banner .tagline { font-size: 13px; color: #c9c3bd; }
+  #banner .who { justify-self: end; display: flex; align-items: center; gap: 10px; color: #c9c3bd; font-size: 13px; }
   #banner .theme { justify-self: end; background: transparent; color: #fff; border: 1px solid #444; border-radius: 999px;
                    width: 38px; height: 38px; font-size: 18px; cursor: pointer; padding: 0; line-height: 1; }
   #banner .theme:hover { border-color: #ffc857; color: #ffc857; }
@@ -187,7 +188,7 @@
 <div id="banner">
   <img class="logo" src="/logo.png" alt="phoenix logo">
   <div class="brandbox"><div class="brand">Self Recruiter <span>(AI)</span></div><div class="tagline">finds, scores and tracks the roles worth your time</div></div>
-  <button id="theme" class="theme" title="Switch light / dark mode">◐</button>
+  <div class="who"><span id="whoami"></span><button id="theme" class="theme" title="Switch light / dark mode">◐</button><button id="logout" class="theme" title="Sign out" style="font-size:14px">⎋</button></div>
 </div>
 <nav id="tabs">
   <button data-tab="jobs" class="on">Job tracker</button>
@@ -267,11 +268,15 @@ const money = j => {
   return f(j.comp_min ?? j.comp_max) + "–" + f(j.comp_max ?? j.comp_min) + (j.comp_period === "hour" ? "/hr" : "");
 };
 
+let me = null;
 async function api(path, opts) {
+  if (opts && opts.method && opts.method !== "GET") opts.headers = {...(opts.headers || {}), "X-CSRF-Token": me?.csrf || ""};
   const r = await fetch(path, opts);
+  if (r.status === 401) { location.href = "/login"; throw new Error("sign in first"); }
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
+const isAdmin = () => me && me.role === "admin";
 
 async function loadSummary() {
   const s = await api("/api/summary");
@@ -456,7 +461,7 @@ function showTab(name) {
   try { localStorage.setItem("tab", name); } catch (e) {}
   if (name === "dups") renderDups();
   if (name === "settings") loadConfigs();
-  if (name === "run") { if (!tools.length) loadTools(); refreshRuns(); } else clearTimeout(pollTimer);
+  if (name === "run") { if (!tools.length && isAdmin()) loadTools(); refreshRuns(); } else clearTimeout(pollTimer);
 }
 $("tabs").addEventListener("click", e => { const b = e.target.closest("button[data-tab]"); if (b) showTab(b.dataset.tab); });
 
@@ -543,10 +548,12 @@ async function loadConfigs() {
   configs = Object.fromEntries(list.map(c => [c.name, c]));
   if (!cfgName) cfgName = list[0].name;
   const btn = c => `<button data-cfg="${c.name}" class="${c.name === cfgName ? "on" : ""}" title="${esc(c.description)}">${esc(c.title)}${c.path ? ` <span class="match" style="color:var(--muted)">${esc(c.path.replace("config/", ""))}</span>` : ""}</button>`;
+  const shared = list.filter(c => c.kind === "file");
   $("cfgnav").innerHTML = `<span class="match" style="color:var(--muted);align-self:center">You:</span>` + list.filter(c => c.kind === "profile").map(btn).join("") +
     `<button data-cfg="resume" class="${cfgName === "resume" ? "on" : ""}" title="Your resume (markdown)">Resume</button>` +
-    `<span class="match" style="color:var(--muted);align-self:center;margin-left:12px">Shared:</span>` + list.filter(c => c.kind === "file").map(btn).join("");
-  if (cfgName === "resume") renderResume(); else renderConfig();
+    `<button data-cfg="account" class="${cfgName === "account" ? "on" : ""}" title="Change your password">Account</button>` +
+    (shared.length ? `<span class="match" style="color:var(--muted);align-self:center;margin-left:12px">Shared:</span>` + shared.map(btn).join("") : "");
+  if (cfgName === "resume") renderResume(); else if (cfgName === "account") renderAccount(); else renderConfig();
 }
 function renderConfig() {
   const c = configs[cfgName]; if (!c) return;
@@ -593,6 +600,18 @@ async function renderResume() {
       <span class="right"><button class="save" id="resume-save">Save and re-index</button></span></div>
     <div class="cfgmsg" id="cfg-msg">${r ? `Active: ${esc(r.filename || "resume")} · ${r.chars.toLocaleString()} characters · uploaded ${esc(r.uploaded_at.slice(0, 16).replace("T", " "))}` : "No resume stored yet."}</div>
     <textarea class="yaml" id="resume-text" spellcheck="false" placeholder="# Your name&#10;&#10;## Experience&#10;...">${esc(r ? r.text : "")}</textarea>`;
+}
+function renderAccount() {
+  $("cfgbody").innerHTML = `<div class="cfghead"><b>Account</b><span class="match" style="color:var(--muted)">${esc(me.email)}${isAdmin() ? " · admin" : ""}</span></div>
+    <div class="card" style="max-width:480px"><h3>Change password</h3>
+      <div class="field cfg"><label>Current password</label><div><input type="password" id="pw-old" autocomplete="current-password"></div></div>
+      <div class="field cfg"><label>New password</label><div><input type="password" id="pw-new" autocomplete="new-password"></div><div class="help">at least 10 characters; other browsers are signed out</div></div>
+      <div class="actions"><button class="yes on" id="pw-save">Change password</button><span class="cfgmsg" id="cfg-msg"></span></div></div>`;
+}
+async function savePassword() {
+  const msg = $("cfg-msg"); msg.className = "cfgmsg";
+  try { await api("/api/auth/password", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({current: $("pw-old").value, new: $("pw-new").value})}); msg.className = "cfgmsg ok"; msg.textContent = "Password changed."; $("pw-old").value = $("pw-new").value = ""; }
+  catch (e) { msg.className = "cfgmsg err"; msg.textContent = e.message.replace(/^.*"detail":"?/, "").replace(/"?}$/, ""); }
 }
 async function saveResume() {
   const msg = $("cfg-msg"); msg.className = "cfgmsg"; msg.textContent = "Saving and indexing…"; $("resume-save").disabled = true;
@@ -650,6 +669,7 @@ $("cfgnav").addEventListener("click", e => { const b = e.target.closest("button[
 $("cfgbody").addEventListener("click", e => {
   if (e.target.id === "cfg-save") return saveConfig();
   if (e.target.id === "resume-save") return saveResume();
+  if (e.target.id === "pw-save") return savePassword();
   if (e.target.id === "cfg-reload") return loadConfigs();
   const d = e.target.closest("button[data-del]"); if (d) { d.closest("tr").remove(); return; }
   const a = e.target.closest("button[data-add]");
@@ -791,9 +811,18 @@ document.addEventListener("keydown", e => {
   else if (k === "f") toggle("favorite");
   else if (k === "a") toggle("applied");
 });
+$("logout").addEventListener("click", async () => { await api("/api/auth/logout", {method: "POST"}); location.href = "/login"; });
+async function whoami() {
+  me = await api("/api/auth/me");
+  $("whoami").textContent = me.name || me.email;
+  $("whoami").title = me.email + (isAdmin() ? " (admin)" : "");
+  if (!isAdmin()) {  // members: no crawl / raw tools, no shared files
+    for (const o of [...$("run-cmd").options]) if (o.value !== "score") o.remove();
+    $("run-pipeline").hidden = $("run-tool").hidden = true;
+  }
+}
 let lastTab = "jobs"; try { lastTab = localStorage.getItem("tab") || "jobs"; } catch (e) {}
-if (lastTab !== "jobs") showTab(lastTab);
-loadSummary().then(() => loadJobs(false)).catch(e => { $("detail").innerHTML = `<div class="empty">Could not load jobs: ${esc(e.message)}</div>`; });
+whoami().then(() => { if (lastTab !== "jobs") showTab(lastTab); return loadSummary(); }).then(() => loadJobs(false)).catch(e => { $("detail").innerHTML = `<div class="empty">Could not load jobs: ${esc(e.message)}</div>`; });
 </script>
 </body>
 </html>
