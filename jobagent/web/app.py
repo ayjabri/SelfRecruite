@@ -73,7 +73,7 @@ def list_jobs(
     flag: Literal["any", "favorite", "applied", "not_applied"] = "any",
     scope: Literal["in_scope", "all"] = "in_scope",
     posted: Literal["any", "24h", "7d", "30d"] = "any",
-    sort: Literal["score", "newest"] = "score", limit: int = 300,
+    sort: Literal["score", "newest", "match"] = "score", limit: int = 300,
 ):
     with session() as s:
         query = select(Job, Company.name).join(Company, Company.id == Job.company_id).where(Job.duplicate_of.is_(None))
@@ -100,7 +100,8 @@ def list_jobs(
         elif label != "all":
             query = query.where(Job.user_label == label)
         newest = func.coalesce(Job.source_posted_at, Job.first_seen_at).desc()
-        order = (Job.fit_score.desc().nulls_last(), Job.id) if sort == "score" else (newest, Job.id)
+        order = {"score": (Job.fit_score.desc().nulls_last(), Job.id), "newest": (newest, Job.id),
+                 "match": (Job.match_score.desc().nulls_last(), Job.fit_score.desc().nulls_last(), Job.id)}[sort]
         total = s.scalar(select(func.count()).select_from(query.subquery()))
         rows = s.execute(query.order_by(*order).limit(min(limit, 1000))).all()
         return {"total": total, "jobs": [{
@@ -109,6 +110,7 @@ def list_jobs(
             "gated": bool((j.fit_details or {}).get("gates")), "label": j.user_label,
             "posted": (j.source_posted_at or j.first_seen_at).date().isoformat(),
             "favorite": j.favorite, "applied": j.applied_at is not None, "has_notes": bool(j.notes),
+            "match_score": j.match_score,
             "comp_min": float(j.comp_min) if j.comp_min is not None else None,
             "comp_max": float(j.comp_max) if j.comp_max is not None else None,
             "comp_period": j.comp_period,
@@ -149,6 +151,8 @@ def get_job(job_id: int):
             "fit_score": j.fit_score, "fit_details": j.fit_details, "label": j.user_label,
             "favorite": j.favorite, "applied_at": j.applied_at.date().isoformat() if j.applied_at else None,
             "notes": j.notes or "",
+            "match_score": j.match_score, "match_explanation": j.match_explanation,
+            "match_details": j.match_details, "scored_at": j.scored_at.date().isoformat() if j.scored_at else None,
             "sections": parsed.get("sections") or [], "description": j.description_text,
         }
 

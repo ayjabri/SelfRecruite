@@ -52,6 +52,15 @@
   .score { flex: none; width: 38px; height: 38px; border-radius: 8px; display: grid; place-items: center;
            font-weight: 700; background: var(--bg); border: 1px solid var(--line); font-variant-numeric: tabular-nums; }
   .score.gated { color: var(--warn); border-color: var(--warn); }
+  .scores { flex: none; display: flex; flex-direction: column; gap: 3px; align-items: center; }
+  .mscore { font-size: 11px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .verdict { display: inline-block; border-radius: 4px; padding: 0 6px; font-size: 11px; font-weight: 700; margin-right: 6px; }
+  .verdict.Covered { background: var(--yes-bg); color: var(--yes); }
+  .verdict.Augmentable { background: var(--sel); color: var(--accent); }
+  .verdict.Reframe { background: var(--warn-bg); color: var(--warn); }
+  .verdict.Gap { background: var(--no-bg); color: var(--no); }
+  .evidence { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .evidence q { font-style: italic; }
   .row.interested { box-shadow: inset 4px 0 0 var(--yes); }
   .row.not_interested { box-shadow: inset 4px 0 0 var(--no); opacity: .6; }
   .count { padding: 6px 12px; color: var(--muted); font-size: 12.5px; border-bottom: 1px solid var(--line); }
@@ -147,7 +156,7 @@
     <option value="not_applied">Not applied</option>
   </select>
   <label class="f">Min score <input type="number" id="min_score" min="0" max="100" value="0"></label>
-  <select id="sort"><option value="score">Highest score</option><option value="newest">Newest</option></select>
+  <select id="sort"><option value="score">Highest fit score</option><option value="match">Highest match score</option><option value="newest">Newest</option></select>
   <label class="f"><input type="checkbox" id="scope"> include filtered-out jobs</label>
   <div id="progress"></div>
   <button id="dupbtn" title="Pairs that look like the same opening; decide whether they are">Possible duplicates</button>
@@ -224,7 +233,8 @@ function renderList(total) {
   const shown = jobs.length < total ? `Showing ${jobs.length} of ${total} jobs` : `${total} jobs`;
   $("list").innerHTML = `<div class="count">${shown}</div>` + jobs.map(j => `
     <div class="row ${j.label || ""} ${j.id === selected ? "sel" : ""}" data-id="${j.id}">
-      <div class="score ${j.gated ? "gated" : ""}" title="${j.gated ? "Capped by a hard gate" : "Fit score"}">${j.fit_score ?? "–"}</div>
+      <div class="scores"><div class="score ${j.gated ? "gated" : ""}" title="${j.gated ? "Capped by a hard gate" : "Fit score"}">${j.fit_score ?? "–"}</div>
+        ${j.match_score != null ? `<div class="mscore" title="Match score from the LLM judgement">M ${j.match_score}</div>` : ""}</div>
       <div style="flex:1;min-width:0"><div class="t">${esc(j.title)}</div>
         <div class="m">${esc(j.company)}${j.location ? " · " + esc(j.location) : ""}</div>
         <div class="m">${[j.seniority !== "unknown" ? j.seniority : "", j.workplace !== "unknown" ? j.workplace : "", money(j), "posted " + j.posted].filter(Boolean).map(esc).join(" · ")}</div>
@@ -265,8 +275,13 @@ function renderDetail(j) {
   const comps = Object.keys(names).filter(k => k in c).map(k => `
     <div>${names[k]}</div><div class="track"><div class="fill" style="width:${Math.round(c[k] * 100)}%"></div></div><div class="num">${Math.round(c[k] * 100)}</div>`).join("");
   const bullets = label => (d.bullets || []).filter(b => b.label === label);
+  const verdicts = new Map(((j.match_details || {}).items || []).map(i => [i.label + "|" + i.text, i]));
+  const verdictHtml = b => {
+    const v = verdicts.get(b.label + "|" + b.text); if (!v) return "";
+    return `<div class="evidence"><span class="verdict ${v.cls}">${v.cls} ${v.pct}</span>${v.evidence_quote ? `<q>${esc(v.evidence_quote)}</q> — ${esc(v.evidence_section || "")}` : ""}${v.missing ? `<div>Missing: ${esc(v.missing)}</div>` : ""}</div>`;
+  };
   const bulletList = bs => `<ul class="b">${bs.map(b => `<li><div class="s">${Math.round(b.score * 100)}</div>
-      <div>${esc(b.text)}<div class="match">closest resume section: ${esc(b.matched)} (similarity ${b.similarity})</div></div></li>`).join("")}</ul>`;
+      <div>${esc(b.text)}${verdictHtml(b)}<div class="match">closest resume section: ${esc(b.matched)} (similarity ${b.similarity})</div></div></li>`).join("")}</ul>`;
   const facts = [
     j.location, j.workplace !== "unknown" && j.workplace, j.seniority !== "unknown" && j.seniority,
     j.employment_type && j.employment_type !== "unknown" && j.employment_type.replace("_", " "),
@@ -299,6 +314,8 @@ function renderDetail(j) {
       <div class="comp">${comps}</div></div>
     ${dial(j.fit_score, (d.gates || []).length > 0)}
     </div>`}
+    ${j.match_score != null ? `<div class="card"><h3>Match score ${j.match_score} · judged by the LLM${j.scored_at ? " on " + esc(j.scored_at) : ""}</h3>
+      <p style="margin:0">${esc(j.match_explanation || "")}</p></div>` : ""}
     ${req.length ? `<div class="card"><h3>Requirements, matched against your resume${d.sections_quality === "unlabelled" ? " (headings not recognised; all bullets shown)" : ""}</h3>${bulletList(req)}</div>` : ""}
     ${pref.length ? `<div class="card"><h3>Preferred</h3>${bulletList(pref)}</div>` : ""}
     ${other.map(s => `<div class="card"><h3>${esc(s.heading || "Other")}</h3><ul class="plain">${s.bullets.map(b => `<li>${esc(b)}</li>`).join("")}</ul></div>`).join("")}
