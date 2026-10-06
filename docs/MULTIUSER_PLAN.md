@@ -203,8 +203,12 @@ Config files keep one job: **defaults for a new profile** (`config/*.yaml` → t
 - **Resume library (added with this phase):** many markdown resumes per user (`resumes`), one
   active for scoring; upload a .md file, paste, download, activate, delete; each application
   records which resume went out (`user_jobs.applied_resume_id`, picker next to "Applied" in the
-  tracker, filter the tracker by resume from Settings → Resumes). Tools: `upload_resume`
-  (`activate`), `activate_resume`, `delete_resume`, `annotate_job(applied_resume_id)`.
+  tracker, filter the tracker by resume from Settings → Resumes). "Upload .md…" next to the
+  picker files the exact resume sent for that job into the library and records it. The job detail
+  ends with two cards side by side: the full posting text and the resume applied with, editable
+  in place (Rename, Save, Discard, download); saving the scoring resume re-indexes it. Tools:
+  `upload_resume` (`activate`), `activate_resume`, `update_resume`, `delete_resume`,
+  `annotate_job(applied_resume_id)`.
 - Still to do for the internet: a domain, the HTTPS block, `REGISTRATION_OPEN=false` if invite
   only, password reset by email (SMTP).
 

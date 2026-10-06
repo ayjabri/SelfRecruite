@@ -157,6 +157,33 @@ def activate_resume(args: ResumeRefInput) -> ResumeRefResult:
     return ResumeRefResult(resume_id=args.resume_id, active=True, chunks=indexed.chunks, error=indexed.error)
 
 
+class UpdateResumeInput(BaseModel):
+    user_id: int | None = Field(None, description="Whose library; default: the current user")
+    resume_id: int = Field(description="resumes.id")
+    text: str | None = Field(None, description="New markdown text; omit to keep")
+    filename: str | None = Field(None, description="New file name; omit to keep")
+
+
+@tool_spec(name="update_resume", description="Edit a stored resume in place (text and/or name). If it is the one used for scoring, it is re-indexed.")
+def update_resume(args: UpdateResumeInput) -> ResumeRefResult:
+    uid = resolve_user(args.user_id)
+    with session() as s, s.begin():
+        row = s.scalar(select(Resume).where(Resume.id == args.resume_id, Resume.user_id == uid))
+        if row is None:
+            return ResumeRefResult(resume_id=args.resume_id, error="no such resume")
+        if args.text is not None:
+            if not args.text.strip():
+                return ResumeRefResult(resume_id=args.resume_id, error="the resume is empty")
+            row.text, row.sha = args.text, sha_of(args.text)
+        if args.filename is not None and args.filename.strip():
+            row.filename = args.filename.strip()
+        active, changed = row.active, args.text is not None
+    if active and changed:
+        indexed = index_golden_source(IndexGoldenInput(user_id=uid))
+        return ResumeRefResult(resume_id=args.resume_id, active=True, chunks=indexed.chunks, error=indexed.error)
+    return ResumeRefResult(resume_id=args.resume_id, active=active)
+
+
 @tool_spec(name="delete_resume", description="Remove a resume from the user's library. The active one cannot be removed; applications that used it keep a blank.")
 def delete_resume(args: ResumeRefInput) -> ResumeRefResult:
     uid = resolve_user(args.user_id)

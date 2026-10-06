@@ -733,6 +733,25 @@ def activate_resume_endpoint(resume_id: int):
     return result
 
 
+class ResumePatch(BaseModel):
+    text: str | None = None
+    filename: str | None = None
+
+
+@app.patch("/api/resumes/{resume_id}")
+def patch_resume(resume_id: int, body: ResumePatch):
+    from jobagent.tools.embeddings import UpdateResumeInput, update_resume
+    name = body.filename
+    if name is not None:
+        name = name.strip()
+        if name and not name.lower().endswith(".md"):
+            name += ".md"
+    result = update_resume(UpdateResumeInput(user_id=current_user(), resume_id=resume_id, text=body.text, filename=name))
+    if result.error:
+        raise HTTPException(400, result.error)
+    return result
+
+
 @app.delete("/api/resumes/{resume_id}")
 def delete_resume_endpoint(resume_id: int):
     from jobagent.tools.embeddings import ResumeRefInput, delete_resume

@@ -186,3 +186,15 @@
   .obbody h2 { margin-top: 0; } .obbody h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 10px 0 6px; }
   .obrow { display: block; padding: 6px 0; cursor: pointer; }
   .skills label.chip { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+  .bottomrow { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; }
+  .bottomrow .card { margin-bottom: 14px; display: flex; flex-direction: column; min-height: 420px; }
+  .bottomrow pre.posting { flex: 1; overflow: auto; max-height: 70vh; margin: 0; font: 13px/1.45 ui-monospace, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  .resumehead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .resumehead .name { flex: 1; min-width: 140px; font-weight: 700; }
+  .resumehead input { width: 100%; }
+  .resumehead button { cursor: pointer; }
+  .resumehead button.save { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 700; }
+  .resumehead button:disabled { opacity: .5; cursor: default; }
+  #resume-text { flex: 1; width: 100%; max-height: 70vh; min-height: 300px; font: 13px/1.45 ui-monospace, monospace; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; resize: vertical; }
+  @media (max-width: 1100px) { .bottomrow { grid-template-columns: 1fr; } }
+  .resumelink { color: var(--accent); cursor: pointer; text-decoration: underline dotted; }

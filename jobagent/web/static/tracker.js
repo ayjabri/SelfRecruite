@@ -40,7 +40,7 @@ function renderList(total) {
         <div class="m">${[j.seniority !== "unknown" ? j.seniority : "", j.workplace !== "unknown" ? j.workplace : "", money(j), "posted " + j.posted].filter(Boolean).map(esc).join(" · ")}</div>
       </div>
       <div class="tags"><button class="heart ${j.favorite ? "on" : ""}" data-fav="${j.id}" title="Favorite (F)">${j.favorite ? "♥" : "♡"}</button>
-        ${j.applied ? `<span class="tag" title="${esc((myResumes.find(r => r.id === j.applied_resume_id) || {}).filename || "")}">applied${j.applied_resume_id ? " ✓" : ""}</span>` : ""}${j.has_notes ? '<span class="tag note">note</span>' : ""}</div>
+        ${j.applied ? `<span class="tag" ${j.applied_resume_id ? `data-resume="${j.applied_resume_id}" style="cursor:pointer"` : ""} title="${esc((myResumes.find(r => r.id === j.applied_resume_id) || {}).filename || "resume not recorded")}">applied${j.applied_resume_id ? " ✓" : ""}</span>` : ""}${j.has_notes ? '<span class="tag note">note</span>' : ""}</div>
     </div>`).join("");
 }
 
@@ -48,9 +48,21 @@ async function loadMyResumes() { try { myResumes = await api("/api/resumes"); } 
 function resumePicker(j) {
   if (!j.applied_at) return "";
   const opts = myResumes.map(r => `<option value="${r.id}" ${r.id === j.applied_resume_id ? "selected" : ""}>${esc(r.filename)}</option>`).join("");
-  return `<label class="f" title="Which resume you sent">with <select id="applied-resume"><option value="0">${myResumes.length ? "resume not recorded" : "no resumes in your library"}</option>${opts}</select></label>`;
+  const used = myResumes.find(r => r.id === j.applied_resume_id);
+  return `<label class="f" title="Which resume you sent">with <select id="applied-resume"><option value="0">${myResumes.length ? "resume not recorded" : "no resumes yet"}</option>${opts}</select></label>
+    <button id="apply-upload" title="Upload the .md you sent for this job; it joins your library">Upload .md…</button>
+    ${used ? `<span class="resumelink" data-open-resume="${used.id}" title="Read or edit it below">${esc(used.filename)} ▾</span>` : ""}`;
+}
+async function uploadForJob(file) {
+  if (!file || selected == null) return;
+  const text = await file.text();
+  const name = file.name.replace(/\.(txt|markdown)$/i, ".md");
+  const r = await api("/api/resume", {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text, filename: name, activate: false})});
+  await loadMyResumes();
+  await annotate(selected, {applied: true, applied_resume_id: r.resume_id});
 }
 async function select(id) {
+  if (selected != null && selected !== id && $("resume-save") && !$("resume-save").disabled && !confirm("Discard unsaved changes to the resume?")) return;
   if (notesTimer && selected != null && selected !== id) { clearTimeout(notesTimer); const t = $("notes"); if (t) annotate(selected, {notes: t.value}); notesTimer = null; }
   selected = id;
   document.querySelectorAll(".row").forEach(r => r.classList.toggle("sel", +r.dataset.id === id));
@@ -137,7 +149,11 @@ function renderDetail(j) {
     ${(j.postings || []).length > 1 ? `<div class="card"><h3>${j.postings.length} postings merged into this job</h3><ul class="plain">${j.postings.map(p =>
       `<li>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title || "posting")}</a>` : esc(p.title || "posting")}${p.location ? " · " + esc(p.location) : ""} <span class="match" style="color:var(--muted)">(${esc(p.source)})</span></li>`).join("")}</ul></div>` : ""}
     ${j.comp_text ? `<div class="card"><h3>Pay, as stated</h3>${esc(j.comp_text)}</div>` : ""}
-    <div class="card"><details><summary>Full posting text</summary><pre>${esc(j.description)}</pre></details></div>`;
+    <div class="bottomrow">
+      <div class="card"><h3>Full posting text</h3><pre class="posting">${esc(j.description)}</pre></div>
+      ${j.applied_resume_id ? `<div class="card" id="resume-card"><h3>Resume you applied with</h3><div class="sub">loading…</div></div>` : ""}
+    </div>`;
+  if (j.applied_resume_id) loadResumeCard(j.applied_resume_id);
   $("detail").scrollTop = 0;
 }
 
@@ -237,10 +253,45 @@ $("detail").addEventListener("click", e => {
 });
 $("detail").addEventListener("input", e => { if (e.target.id === "notes") notesChanged(); });
 $("detail").addEventListener("change", e => { if (e.target.id === "applied-resume" && selected != null) annotate(selected, {applied_resume_id: +e.target.value}); });
+$("detail").addEventListener("click", e => {
+  if (e.target.id === "apply-upload") return $("apply-file").click();
+  const o = e.target.closest("[data-open-resume]"); if (o) scrollToResume();
+});
+$("apply-file").addEventListener("change", e => { uploadForJob(e.target.files[0]); e.target.value = ""; });
 $("list").addEventListener("click", e => {
-  const h = e.target.closest("button[data-fav]");
-  if (h) { e.stopPropagation(); const j = jobs.find(x => x.id === +h.dataset.fav); annotate(j.id, {favorite: !j.favorite}); }
+  const tag = e.target.closest(".tag[data-resume]"); if (tag) { e.stopPropagation(); const row = tag.closest(".row"); select(+row.dataset.id).then(scrollToResume); }
 }, true);
-let timer;
-for (const id of ["q", "company", "label", "flag", "posted", "min_score", "sort", "scope"])
-  $(id).addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => loadJobs(false), 250); });
+
+// ---- the resume used for an application, shown beside the full posting text and editable in place
+let rcard = {id: null, text: "", filename: ""};
+async function loadResumeCard(id) {
+  const box = $("resume-card"); if (!box) return;
+  try {
+    const r = await api("/api/resumes/" + id);
+    rcard = {id: r.id, text: r.text, filename: r.filename || `resume-${r.id}.md`, active: r.active};
+    box.innerHTML = `<div class="resumehead"><span class="name" id="resume-name">${esc(rcard.filename)}${r.active ? ' <span class="tag">scoring</span>' : ""}</span><input type="text" id="resume-rename" hidden>
+        <button id="resume-renamebtn" title="Rename">Rename</button><button id="resume-discard" disabled>Discard</button><button class="save" id="resume-save" disabled>Save</button>
+        <a href="/api/resumes/${r.id}?download=true" title="Download .md" style="color:var(--accent)">⬇</a></div>
+      <div class="cfgmsg" id="resume-msg"></div><textarea id="resume-text" spellcheck="false">${esc(r.text)}</textarea>`;
+  } catch (e) { box.innerHTML = `<div class="sub">Could not load the resume: ${esc(e.message)}</div>`; }
+}
+function resumeDirty(dirty) { $("resume-save").disabled = $("resume-discard").disabled = !dirty; }
+async function saveResumeCard() {
+  const msg = $("resume-msg"); msg.className = "cfgmsg"; msg.textContent = "Saving…";
+  const body = {text: $("resume-text").value};
+  if (!$("resume-rename").hidden) body.filename = $("resume-rename").value;
+  try {
+    const r = await api("/api/resumes/" + rcard.id, {method: "PATCH", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    rcard.text = body.text; if (body.filename) rcard.filename = body.filename.endsWith(".md") ? body.filename : body.filename + ".md";
+    $("resume-name").innerHTML = esc(rcard.filename) + (r.active ? ' <span class="tag">scoring</span>' : ""); $("resume-rename").hidden = true; $("resume-name").hidden = false;
+    msg.className = "cfgmsg ok"; msg.textContent = "Saved" + (r.active && r.chunks ? `; re-indexed into ${r.chunks} sections` : "") + ".";
+    resumeDirty(false); await loadMyResumes(); renderList(jobs.length);
+  } catch (e) { msg.className = "cfgmsg err"; msg.textContent = "Not saved: " + e.message.replace(/^.*"detail":"?/, "").replace(/"?}$/, ""); }
+}
+function scrollToResume() { $("resume-card")?.scrollIntoView({behavior: "smooth", block: "start"}); }
+$("detail").addEventListener("click", e => {
+  if (e.target.id === "resume-save") saveResumeCard();
+  else if (e.target.id === "resume-discard") { $("resume-text").value = rcard.text; $("resume-rename").hidden = true; $("resume-name").hidden = false; resumeDirty(false); $("resume-msg").textContent = ""; }
+  else if (e.target.id === "resume-renamebtn") { $("resume-rename").value = rcard.filename; $("resume-rename").hidden = false; $("resume-name").hidden = true; $("resume-rename").focus(); resumeDirty(true); }
+});
+$("detail").addEventListener("input", e => { if (e.target.id === "resume-text" || e.target.id === "resume-rename") resumeDirty(true); });
