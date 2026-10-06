@@ -35,7 +35,7 @@ runs.recover()
 
 _request_user: contextvars.ContextVar[User | None] = contextvars.ContextVar("user", default=None)
 _request_csrf: contextvars.ContextVar[str | None] = contextvars.ContextVar("csrf", default=None)
-PUBLIC = ("/login", "/logo.png", "/api/auth/status", "/api/auth/login", "/api/auth/register")
+PUBLIC = ("/login", "/logo.png", "/caddy-root.crt", "/api/auth/status", "/api/auth/login", "/api/auth/register")
 app.mount("/static", StaticFiles(directory=str(Path(__file__).with_name("static"))), name="static")
 
 
@@ -134,6 +134,16 @@ def _page(path: Path) -> str:
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return _page(INDEX)
+
+
+@app.get("/caddy-root.crt")
+def caddy_root():
+    """The local certificate authority's public root, for devices to trust (see docs/HTTPS.md)."""
+    path = ROOT / "data" / "caddy-root.crt"
+    if not path.exists():
+        raise HTTPException(404, "not exported yet: see docs/HTTPS.md")
+    return Response(path.read_bytes(), media_type="application/x-x509-ca-cert",
+                    headers={"Content-Disposition": 'attachment; filename="caddy-root.crt"'})
 
 
 @app.get("/login", response_class=HTMLResponse)

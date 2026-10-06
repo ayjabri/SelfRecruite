@@ -28,12 +28,17 @@ Export the root certificate from the server:
 sudo cp /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt /srv/jobagent/data/caddy-root.crt && sudo chmod 644 /srv/jobagent/data/caddy-root.crt
 ```
 
-Copy `caddy-root.crt` to the device (AirDrop, email to yourself, or a USB stick) and install it:
+Once exported, every device can download it from the page itself at
+`https://10.0.0.100/caddy-root.crt` (click through the browser's warning once; the file is the
+public root, nothing secret). Or copy it with scp / AirDrop / a USB stick. Then install it:
 
 - **macOS:** double-click the file, add it to the *System* keychain, open it in Keychain
   Access and set "When using this certificate" to *Always Trust*.
-- **Windows:** double-click, Install Certificate, Local Machine, place in *Trusted Root
-  Certification Authorities*.
+- **Windows:** double-click the file → Install Certificate… → *Local Machine* → "Place all
+  certificates in the following store" → Browse → *Trusted Root Certification Authorities* →
+  Finish. Or in PowerShell as administrator:
+  `Import-Certificate -FilePath .\caddy-root.crt -CertStoreLocation Cert:\LocalMachine\Root`.
+  Restart the browser afterwards.
 - **iPhone / iPad:** open the file, install the profile under Settings → General → VPN &
   Device Management, then enable full trust under Settings → General → About → Certificate
   Trust Settings.
