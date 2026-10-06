@@ -55,3 +55,17 @@ def test_shipped_filters_file_loads():
     from jobagent.tools.filtering import load_filters
     cfg = load_filters()
     assert cfg["include"].search("Senior Treasury Analyst") and cfg["exclude"].search("Summer Internship")
+
+
+@pytest.mark.parametrize("location,kept", [
+    ("New York, NY", True),
+    ("Jersey City, NJ", True),
+    ("Plano, TX", False),
+    ("Charlotte, NC | New York, NY", True),      # any allowed segment keeps it
+    ("Remote - US", True),                        # remote is kept wherever
+    ("United States", True),                      # no state readable: kept
+])
+def test_state_gate(location, kept):
+    cfg = {**CFG, "allowed_states": ("NY", "NJ")}
+    assert evaluate(_p("treasury lead", location), cfg)[0] is kept
+    assert evaluate(_p("treasury lead", location), {**CFG, "allowed_states": ()})[0] is True

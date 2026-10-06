@@ -1,4 +1,5 @@
 """Pre-filter tools: mark stored postings as kept or filtered before any LLM call."""
+import re
 from collections import Counter
 from functools import lru_cache
 
@@ -28,7 +29,17 @@ def load_filters() -> dict:
         "us_only": bool(location.get("us_only", True)),
         "extra_us": tuple(location.get("extra_us") or ()),
         "extra_non_us": tuple(location.get("extra_non_us") or ()),
+        "allowed_states": tuple(str(s).upper() for s in location.get("allowed_states") or ()),
     }
+
+
+_REMOTE = re.compile(r"\bremote\b", re.I)
+
+
+def location_states(location_text: str) -> set[str]:
+    """US state codes a posting's location text names (empty when none can be read)."""
+    from jobagent.parse.core import parse_locations  # lazy: parse.core imports this package
+    return {loc.state for loc in parse_locations(location_text) if loc.state}
 
 
 def evaluate(posting: NormalizedPosting, cfg: dict | None = None) -> tuple[bool, str]:
@@ -42,6 +53,11 @@ def evaluate(posting: NormalizedPosting, cfg: dict | None = None) -> tuple[bool,
         where, place = classify_location(posting.location_text, cfg["extra_us"], cfg["extra_non_us"])
         if where == "non_us":
             return False, f"outside US: {place}"
+    allowed = set(cfg.get("allowed_states") or ())
+    if allowed and not _REMOTE.search(posting.location_text or ""):
+        states = location_states(posting.location_text)
+        if states and not (states & allowed):
+            return False, f"outside {'/'.join(sorted(allowed))}: {', '.join(sorted(states))}"
     return True, "matched"
 
 
@@ -50,6 +66,9 @@ class FilterInput(BaseModel):
         "Re-evaluate every stored posting, including ones checked earlier. Use after "
         "config/filters.yaml changes. Jobs already created are kept but fall out of scope."))
     dry_run: bool = Field(False, description="Report what would happen without saving anything")
+    states: list[str] | None = Field(None, description=(
+        "Keep only postings in these US states (codes, e.g. ['NY', 'NJ']) for this run, overriding "
+        "config/filters.yaml. Remote postings and unreadable locations are kept. [] disables the gate."))
 
 
 class FilterResult(BaseModel):
@@ -72,6 +91,8 @@ class FilterResult(BaseModel):
 )
 def filter_pending_postings(args: FilterInput) -> FilterResult:
     cfg = load_filters()
+    if args.states is not None:
+        cfg = {**cfg, "allowed_states": tuple(s.upper() for s in args.states)}
     out = FilterResult(dry_run=args.dry_run)
     reasons: Counter[str] = Counter()
     decisions: dict[int, tuple[str, str]] = {}

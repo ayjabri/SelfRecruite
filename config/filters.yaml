@@ -126,3 +126,6 @@ location:
   us_only: true      # drop postings clearly outside the US; unclear locations are kept
   extra_us: [New Jersey, New York, Jersey City, NYC, NJ]       # extra place names to treat as US, e.g. [Plano, Jersey City]
   extra_non_us: []   # extra place names to treat as non-US
+  # keep only postings in these states; remote postings and postings whose state cannot be
+  # read are kept too. Empty list = no state gate. (The fit-score gate in targets.yaml stays.)
+  allowed_states: [NY, NJ]
