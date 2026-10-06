@@ -52,7 +52,8 @@ class Profile(Base):
 
 
 class Resume(Base):
-    """A user's resume text (markdown). One is active at a time."""
+    """One markdown resume in a user's library. One is active (used for scoring) at a time;
+    any of them can be recorded as the one sent with an application."""
     __tablename__ = "resumes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -153,6 +154,7 @@ class UserJob(Base):
     user_labeled_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     favorite: Mapped[bool] = mapped_column(Boolean, server_default="false")
     applied_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    applied_resume_id: Mapped[int | None] = mapped_column(ForeignKey("resumes.id", ondelete="SET NULL"))  # which resume went out
     notes: Mapped[str | None] = mapped_column(Text)
     match_score: Mapped[int | None] = mapped_column(SmallInteger)            # LLM judgement, 0-100
     match_explanation: Mapped[str | None] = mapped_column(Text)

@@ -68,7 +68,7 @@ async function loadConfigs() {
   const btn = c => `<button data-cfg="${c.name}" class="${c.name === cfgName ? "on" : ""}" title="${esc(c.description)}">${esc(c.title)}${c.path ? ` <span class="match" style="color:var(--muted)">${esc(c.path.replace("config/", ""))}</span>` : ""}</button>`;
   const shared = list.filter(c => c.kind === "file");
   $("cfgnav").innerHTML = `<span class="match" style="color:var(--muted);align-self:center">You:</span>` + list.filter(c => c.kind === "profile").map(btn).join("") +
-    `<button data-cfg="resume" class="${cfgName === "resume" ? "on" : ""}" title="Your resume (markdown)">Resume</button>` +
+    `<button data-cfg="resume" class="${cfgName === "resume" ? "on" : ""}" title="Your resumes (markdown)">Resumes</button>` +
     `<button data-cfg="account" class="${cfgName === "account" ? "on" : ""}" title="Change your password">Account</button>` +
     `<button id="cfg-wizard" title="Walk through resume, roles, location and skills again">Set up again…</button>` +
     (shared.length ? `<span class="match" style="color:var(--muted);align-self:center;margin-left:12px">Shared:</span>` + shared.map(btn).join("") : "");
@@ -113,19 +113,68 @@ const tableRow = (cols, row = {}) => `<tr>${cols.map(c => `<td><input type="text
 const mapRow = (k = "", list = []) => `<tr><td style="width:220px"><input type="text" data-key value="${esc(k)}"></td><td><input type="text" data-list value="${esc(list.join(", "))}"></td>${delBtn}</tr>`;
 const familyRow = (k = "", fam = {}) => `<tr><td style="width:200px"><input type="text" data-key value="${esc(k)}"></td><td><input type="number" class="num" data-weight value="${fam.weight ?? 1}" step="0.05"></td><td><input type="text" data-list value="${esc((fam.keywords || []).join(", "))}"></td>${delBtn}</tr>`;
 
+let resumeSel = null, resumeList = [];
 async function renderResume() {
-  const r = await api("/api/resume");
-  $("cfgbody").innerHTML = `<div class="cfghead"><b>Resume</b><span class="match" style="color:var(--muted)">Markdown. Sections are split by heading, embedded, and matched against each job's requirements.</span>
-      <span class="right"><button class="save" id="resume-save">Save and re-index</button></span></div>
-    <div class="cfgmsg" id="cfg-msg">${r ? `Active: ${esc(r.filename || "resume")} · ${r.chars.toLocaleString()} characters · uploaded ${esc(r.uploaded_at.slice(0, 16).replace("T", " "))}` : "No resume stored yet."}</div>
-    <textarea class="yaml" id="resume-text" spellcheck="false" placeholder="# Your name&#10;&#10;## Experience&#10;...">${esc(r ? r.text : "")}</textarea>`;
+  resumeList = await api("/api/resumes");
+  if (resumeSel == null || !resumeList.some(r => r.id === resumeSel)) resumeSel = (resumeList.find(r => r.active) || resumeList[0] || {}).id ?? null;
+  const cur = resumeSel != null ? await api("/api/resumes/" + resumeSel) : null;
+  const rows = resumeList.map(r => `<tr class="${r.id === resumeSel ? "sel" : ""}" data-resume="${r.id}">
+      <td><a href="#" data-open-resume="${r.id}">${esc(r.filename)}</a>${r.active ? ' <span class="tag">scoring</span>' : ""}</td>
+      <td>${r.chars.toLocaleString()}</td><td>${esc(r.uploaded_at.slice(0, 16).replace("T", " "))}</td>
+      <td>${r.applications ? `<a href="#" data-filter-resume="${r.id}">${r.applications}</a>` : "0"}</td>
+      <td><a href="/api/resumes/${r.id}?download=true" title="Download .md">⬇</a> ${r.active ? "" : `<button data-activate="${r.id}" title="Score against this one">use for scoring</button> <button class="del" data-delete="${r.id}" title="Remove">×</button>`}</td></tr>`).join("");
+  $("cfgbody").innerHTML = `<div class="cfghead"><b>Resumes</b><span class="match" style="color:var(--muted)">Your library of markdown resumes. One is used for scoring; any can be recorded as the one you applied with.</span></div>
+    <div class="card"><table class="rows"><tr><th>file</th><th>chars</th><th>added</th><th>applications</th><th></th></tr>${rows || '<tr><td colspan="5" class="sub">No resumes yet.</td></tr>'}</table>
+      <div class="actions" style="margin-bottom:0"><label class="f"><input type="file" id="resume-file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden><button id="resume-upload">Upload .md file…</button></label><button id="resume-new">New from blank</button></div></div>
+    ${cur ? `<div class="cfghead"><b>${esc(cur.filename || "resume")}</b>${cur.active ? '<span class="tag">scoring</span>' : ""}
+      <span class="right"><input type="text" id="resume-name" value="${esc(cur.filename || "resume.md")}" style="width:220px" title="file name"><label class="f"><input type="checkbox" id="resume-activate" ${cur.active ? "checked" : ""}> use for scoring</label><button class="save" id="resume-save">Save as new version</button></span></div>
+      <div class="cfgmsg" id="cfg-msg"></div>
+      <textarea class="yaml" id="resume-text" spellcheck="false">${esc(cur.text)}</textarea>` : `<div class="cfghead"><b>New resume</b><span class="right"><input type="text" id="resume-name" value="resume.md" style="width:220px"><label class="f"><input type="checkbox" id="resume-activate" checked> use for scoring</label><button class="save" id="resume-save">Save</button></span></div>
+      <div class="cfgmsg" id="cfg-msg"></div><textarea class="yaml" id="resume-text" spellcheck="false" placeholder="# Your name&#10;&#10;## Experience&#10;..."></textarea>`}`;
 }
+async function saveResume() {
+  const msg = $("cfg-msg"); msg.className = "cfgmsg"; msg.textContent = "Saving…"; $("resume-save").disabled = true;
+  try {
+    const activate = $("resume-activate").checked;
+    const r = await api("/api/resume", {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text: $("resume-text").value, filename: $("resume-name").value, activate})});
+    resumeSel = r.resume_id;
+    await renderResume();
+    const m = $("cfg-msg"); m.className = "cfgmsg ok";
+    m.innerHTML = r.unchanged ? "Identical to a resume already in the library." : activate ? `Saved and indexed into ${r.chunks} sections. Re-score every job: <button id="cfg-after">Run score_jobs_fast now</button>` : "Saved to the library.";
+    $("cfg-after")?.addEventListener("click", async () => {
+      const run = await api("/api/runs", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({command: "run", tool: "score_jobs_fast", args: {rescore: true}})});
+      showTab("run"); watch(run.id);
+    });
+  } catch (e) { msg.className = "cfgmsg err"; msg.textContent = "Not saved: " + e.message.replace(/^.*"detail":"?/, "").replace(/"?}$/, ""); $("resume-save").disabled = false; }
+}
+async function resumeAction(e) {
+  const open = e.target.closest("a[data-open-resume]"); if (open) { e.preventDefault(); resumeSel = +open.dataset.openResume; return renderResume(); }
+  const filt = e.target.closest("a[data-filter-resume]"); if (filt) { e.preventDefault(); $("flag").value = "applied"; filterResume = +filt.dataset.filterResume; showTab("jobs"); return loadJobs(false); }
+  const act = e.target.closest("button[data-activate]"); if (act) { await api(`/api/resumes/${act.dataset.activate}/activate`, {method: "POST"}); resumeSel = +act.dataset.activate; return renderResume(); }
+  const del = e.target.closest("button[data-delete]"); if (del) { if (!confirm("Remove this resume from your library?")) return; await api(`/api/resumes/${del.dataset.delete}`, {method: "DELETE"}); if (resumeSel === +del.dataset.delete) resumeSel = null; return renderResume(); }
+  if (e.target.id === "resume-upload") return $("resume-file").click();
+  if (e.target.id === "resume-new") { resumeSel = null; const list = await api("/api/resumes"); resumeList = list; $("resume-name").value = "resume.md"; $("resume-text").value = ""; $("resume-activate").checked = !list.length; $("cfg-msg").textContent = "Blank resume: paste or type, then Save."; return; }
+}
+$("cfgbody").addEventListener("change", e => {
+  if (e.target.id !== "resume-file" || !e.target.files[0]) return;
+  const f = e.target.files[0];
+  f.text().then(text => { $("resume-text").value = text; $("resume-name").value = f.name.replace(/\.(txt|markdown)$/i, ".md"); $("cfg-msg").textContent = `Loaded ${f.name}; click Save to keep it.`; });
+});
 function renderAccount() {
   $("cfgbody").innerHTML = `<div class="cfghead"><b>Account</b><span class="match" style="color:var(--muted)">${esc(me.email)}${isAdmin() ? " · admin" : ""}</span></div>
     <div class="card" style="max-width:480px"><h3>Change password</h3>
       <div class="field cfg"><label>Current password</label><div><input type="password" id="pw-old" autocomplete="current-password"></div></div>
       <div class="field cfg"><label>New password</label><div><input type="password" id="pw-new" autocomplete="new-password"></div><div class="help">at least 10 characters; other browsers are signed out</div></div>
-      <div class="actions"><button class="yes on" id="pw-save">Change password</button><span class="cfgmsg" id="cfg-msg"></span></div></div>`;
+      <div class="actions"><button class="yes on" id="pw-save">Change password</button><span class="cfgmsg" id="cfg-msg"></span></div></div>
+    <div class="card" style="max-width:480px"><h3>Delete account</h3><div class="sub">Removes your profile, resumes, marks, notes and judgements for good. The shared job pool is unaffected.</div>
+      <div class="field cfg"><label>Password</label><div><input type="password" id="del-pw" autocomplete="current-password"></div></div>
+      <div class="actions"><button class="no" id="acct-delete">Delete my account</button><span class="cfgmsg" id="del-msg"></span></div></div>`;
+}
+async function deleteAccount() {
+  if (!confirm("Delete your account and everything in it? This cannot be undone.")) return;
+  const msg = $("del-msg"); msg.className = "cfgmsg";
+  try { await api("/api/auth/delete", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({password: $("del-pw").value})}); location.href = "/login"; }
+  catch (e) { msg.className = "cfgmsg err"; msg.textContent = e.message.replace(/^.*"detail":"?/, "").replace(/"?}$/, ""); }
 }
 async function savePassword() {
   const msg = $("cfg-msg"); msg.className = "cfgmsg";
@@ -188,7 +237,9 @@ $("cfgnav").addEventListener("click", e => { if (e.target.id === "cfg-wizard") r
 $("cfgbody").addEventListener("click", e => {
   if (e.target.id === "cfg-save") return saveConfig();
   if (e.target.id === "resume-save") return saveResume();
+  if (cfgName === "resume") return resumeAction(e);
   if (e.target.id === "pw-save") return savePassword();
+  if (e.target.id === "acct-delete") return deleteAccount();
   if (e.target.id === "cfg-reload") return loadConfigs();
   const d = e.target.closest("button[data-del]"); if (d) { d.closest("tr").remove(); return; }
   const a = e.target.closest("button[data-add]");

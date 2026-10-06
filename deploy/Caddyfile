@@ -1,0 +1,25 @@
+# Reverse proxy in front of the jobagent web page.
+#   sudo apt install caddy && sudo cp /srv/jobagent/deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+# The page itself listens on 127.0.0.1:8765 (systemd/jobagent-ui.service); Caddy owns ports 80/443.
+
+# LAN, plain HTTP on port 80 (today)
+:80 {
+	encode gzip
+	request_body {
+		max_size 4MB
+	}
+	reverse_proxy 127.0.0.1:8765
+}
+
+# Internet, automatic HTTPS: replace the host, delete the :80 block above, then set
+# COOKIE_SECURE=true in .env and restart jobagent-ui.
+# jobs.example.com {
+# 	encode gzip
+# 	request_body {
+# 		max_size 4MB
+# 	}
+# 	header {
+# 		Strict-Transport-Security "max-age=31536000"
+# 	}
+# 	reverse_proxy 127.0.0.1:8765
+# }

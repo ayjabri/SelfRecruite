@@ -45,6 +45,8 @@ def main(argv: list[str] | None = None) -> int:
     ui = sub.add_parser("ui", help="start the job review web page")
     ui.add_argument("--host", default="127.0.0.1", help="address to listen on (default: this machine only)")
     ui.add_argument("--port", type=int, default=8765)
+    ui.add_argument("--no-reload", action="store_true", help="production: do not watch the code for changes")
+    ui.add_argument("--proxy-headers", action="store_true", help="behind a reverse proxy: trust X-Forwarded-* from localhost")
     args = vars(parser.parse_args(argv))
     # progress goes to stderr, so stdout stays clean JSON / the final report
     logging.basicConfig(level=logging.WARNING, stream=sys.stderr, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
@@ -58,9 +60,11 @@ def main(argv: list[str] | None = None) -> int:
     if args["cmd"] == "ui":
         import uvicorn
         print(f"Job review: http://{args['host']}:{args['port']}  (Ctrl-C to stop)")
-        # reload=True restarts the server when the Python code changes, so updates take effect
+        # one worker process on purpose: the run queue lives in the server process. reload=True
+        # restarts it when the code changes (development); --no-reload for the service.
         uvicorn.run("jobagent.web.app:app", host=args["host"], port=args["port"], log_level="warning",
-                    reload=True, reload_dirs=[str(Path(__file__).parent / "web")])
+                    reload=not args["no_reload"], reload_dirs=[str(Path(__file__).parent / "web")],
+                    proxy_headers=args["proxy_headers"], forwarded_allow_ips="127.0.0.1" if args["proxy_headers"] else None)
         return 0
     if args["cmd"] == "secret-key":
         from jobagent.secrets import new_key

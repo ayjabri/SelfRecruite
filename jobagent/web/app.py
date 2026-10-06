@@ -47,7 +47,7 @@ async def sign_in_gate(request: Request, call_next):
     _request_user.set(user)
     _request_csrf.set(csrf)
     path = request.url.path
-    if user is None and path not in PUBLIC and not path.startswith("/static/"):
+    if user is None and path not in PUBLIC and not path.startswith("/static/") and path != "/healthz":
         if path.startswith("/api/"):
             return JSONResponse({"detail": "sign in first"}, status_code=401)
         return RedirectResponse("/login", status_code=303)
@@ -55,6 +55,25 @@ async def sign_in_gate(request: Request, call_next):
             and path not in PUBLIC and request.headers.get("x-csrf-token") != csrf:
         return JSONResponse({"detail": "missing or stale CSRF token; reload the page"}, status_code=403)
     return await call_next(request)
+
+
+MAX_BODY = 4 * 1024 * 1024  # a resume is well under 1 MB; Caddy enforces the same limit in front
+
+
+@app.middleware("http")
+async def hardening(request: Request, call_next):
+    """Body-size limit and the usual security headers on every response."""
+    if (length := request.headers.get("content-length")) and int(length) > MAX_BODY:
+        return JSONResponse({"detail": "request too large"}, status_code=413)
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("Content-Security-Policy",
+                                "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+                                "script-src 'self'; connect-src 'self'; frame-ancestors 'none'")
+    return response
+
 
 
 def current_user() -> int:
@@ -73,9 +92,21 @@ def require_admin() -> User:
     return user
 
 
-def _set_cookie(response: Response, token: str) -> None:
+def _set_cookie(response: Response, token: str, request: Request) -> None:
+    secure = auth.COOKIE_SECURE or request.url.scheme == "https"  # the scheme is real behind --proxy-headers
     response.set_cookie(auth.COOKIE, token, max_age=auth.SESSION_DAYS * 86400, httponly=True,
-                        samesite="lax", secure=auth.COOKIE_SECURE, path="/")
+                        samesite="lax", secure=secure, path="/")
+
+
+@app.get("/healthz")
+def healthz():
+    """For the proxy / a monitor: 200 when the database answers."""
+    try:
+        with session() as s:
+            s.execute(select(1)).scalar()
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": type(e).__name__}, status_code=503)
+    return {"ok": True}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -104,7 +135,7 @@ def auth_status():
 def _sign_in(user: User, request: Request) -> JSONResponse:
     token, csrf = auth.create_session(user.id, request.headers.get("user-agent"))
     response = JSONResponse({"id": user.id, "email": user.email, "name": user.name, "role": user.role, "csrf": csrf})
-    _set_cookie(response, token)
+    _set_cookie(response, token, request)
     return response
 
 
@@ -152,6 +183,28 @@ def change_password(body: PasswordChange, request: Request):
     except auth.AuthError as e:
         raise HTTPException(e.status, str(e))
     return {"changed": True}
+
+
+class DeleteAccount(BaseModel):
+    password: str
+
+
+@app.post("/api/auth/delete")
+def delete_account(body: DeleteAccount, request: Request):
+    """Removes the account and everything that is theirs: profile, resumes, resume chunks, marks,
+    notes, judgements, preference model, sessions. Shared jobs stay."""
+    uid = current_user()
+    with session() as s, s.begin():
+        user = s.get(User, uid)
+        if not auth.verify_password(body.password, user.password_hash):
+            raise HTTPException(403, "wrong password")
+        admins = s.scalar(select(func.count()).select_from(User).where(User.role == "admin", User.status == "active"))
+        if user.role == "admin" and admins <= 1:
+            raise HTTPException(400, "you are the only admin; make someone else admin first")
+        s.delete(user)  # ON DELETE CASCADE takes the rest
+    response = JSONResponse({"deleted": True})
+    response.delete_cookie(auth.COOKIE, path="/")
+    return response
 
 
 @app.get("/api/users")
@@ -278,7 +331,7 @@ def list_jobs(
     flag: Literal["any", "favorite", "applied", "not_applied"] = "any",
     scope: Literal["in_scope", "all"] = "in_scope",
     posted: Literal["any", "24h", "7d", "30d"] = "any",
-    sort: Literal["score", "newest", "match"] = "score", limit: int = 300,
+    sort: Literal["score", "newest", "match"] = "score", limit: int = 300, resume_id: int = 0,
 ):
     uid = current_user()
     with session() as s:
@@ -302,6 +355,8 @@ def list_jobs(
             query = query.where(UserJob.applied_at.is_not(None))
         elif flag == "not_applied":
             query = query.where(UserJob.applied_at.is_(None))
+        if resume_id:
+            query = query.where(UserJob.applied_resume_id == resume_id)
         if label == "unlabelled":
             query = query.where(UserJob.user_label.is_(None))
         elif label != "all":
@@ -318,6 +373,7 @@ def list_jobs(
             "gated": bool(((u.fit_details if u else None) or {}).get("gates")), "label": u.user_label if u else None,
             "posted": (j.source_posted_at or j.first_seen_at).date().isoformat(),
             "favorite": bool(u and u.favorite), "applied": bool(u and u.applied_at), "has_notes": bool(u and u.notes),
+            "applied_resume_id": u.applied_resume_id if u else None,
             "match_score": u.match_score if u else None,
             "comp_min": float(j.comp_min) if j.comp_min is not None else None,
             "comp_max": float(j.comp_max) if j.comp_max is not None else None,
@@ -363,6 +419,7 @@ def get_job(job_id: int):
             "label": u.user_label if u else None,
             "favorite": bool(u and u.favorite),
             "applied_at": u.applied_at.date().isoformat() if u and u.applied_at else None,
+            "applied_resume_id": u.applied_resume_id if u else None,
             "notes": (u.notes if u else None) or "",
             "match_score": u.match_score if u else None, "match_explanation": u.match_explanation if u else None,
             "match_details": u.match_details if u else None,
@@ -387,6 +444,7 @@ def set_label(job_id: int, body: LabelBody):
 class AnnotateBody(BaseModel):
     favorite: bool | None = None
     applied: bool | None = None
+    applied_resume_id: int | None = None
     notes: str | None = None
 
 
@@ -606,26 +664,79 @@ def put_config(name: str, body: ConfigBody):
     raise HTTPException(400, "send text or data")
 
 
-# --- the current user's resume -------------------------------------------------------------
+# --- the current user's resume library -----------------------------------------------------
+
+def _resume_rows(uid: int) -> list[dict]:
+    with session() as s:
+        used = dict(s.execute(select(UserJob.applied_resume_id, func.count()).where(
+            UserJob.user_id == uid, UserJob.applied_resume_id.is_not(None)).group_by(UserJob.applied_resume_id)).all())
+        rows = s.scalars(select(Resume).where(Resume.user_id == uid).order_by(Resume.active.desc(), Resume.id.desc())).all()
+        return [{"id": r.id, "filename": r.filename or f"resume-{r.id}.md", "sha": r.sha[:12], "active": r.active,
+                 "uploaded_at": r.uploaded_at.isoformat(timespec="seconds"), "chars": len(r.text),
+                 "applications": used.get(r.id, 0)} for r in rows]
+
+
+@app.get("/api/resumes")
+def list_resumes():
+    return _resume_rows(current_user())
+
 
 @app.get("/api/resume")
 def get_resume():
+    """The active resume with its text (what the tracker scores against)."""
     from jobagent.users import active_resume
     with session() as s:
         r = active_resume(s, current_user())
-        return {"filename": r.filename, "sha": r.sha, "uploaded_at": r.uploaded_at.isoformat(timespec="seconds"),
+        return {"id": r.id, "filename": r.filename, "sha": r.sha, "uploaded_at": r.uploaded_at.isoformat(timespec="seconds"),
                 "chars": len(r.text), "text": r.text} if r else None
 
 
 class ResumeBody(BaseModel):
     text: str
     filename: str | None = None
+    activate: bool = True
 
 
 @app.put("/api/resume")
 def put_resume(body: ResumeBody):
+    """Add a resume to the library (and, by default, score against it)."""
     from jobagent.tools.embeddings import UploadResumeInput, upload_resume
-    result = upload_resume(UploadResumeInput(user_id=current_user(), text=body.text, filename=body.filename))
+    name = (body.filename or "resume.md").strip()
+    if not name.lower().endswith(".md"):
+        name += ".md"
+    result = upload_resume(UploadResumeInput(user_id=current_user(), text=body.text, filename=name, activate=body.activate))
+    if result.error:
+        raise HTTPException(400, result.error)
+    return result
+
+
+@app.get("/api/resumes/{resume_id}")
+def get_resume_text(resume_id: int, download: bool = False):
+    with session() as s:
+        r = s.scalar(select(Resume).where(Resume.id == resume_id, Resume.user_id == current_user()))
+        if r is None:
+            raise HTTPException(404, "no such resume")
+        if download:
+            name = (r.filename or f"resume-{r.id}.md").replace('"', "")
+            return Response(r.text, media_type="text/markdown; charset=utf-8",
+                            headers={"Content-Disposition": f'attachment; filename="{name}"'})
+        return {"id": r.id, "filename": r.filename, "active": r.active, "text": r.text,
+                "uploaded_at": r.uploaded_at.isoformat(timespec="seconds")}
+
+
+@app.post("/api/resumes/{resume_id}/activate")
+def activate_resume_endpoint(resume_id: int):
+    from jobagent.tools.embeddings import ResumeRefInput, activate_resume
+    result = activate_resume(ResumeRefInput(user_id=current_user(), resume_id=resume_id))
+    if result.error:
+        raise HTTPException(400, result.error)
+    return result
+
+
+@app.delete("/api/resumes/{resume_id}")
+def delete_resume_endpoint(resume_id: int):
+    from jobagent.tools.embeddings import ResumeRefInput, delete_resume
+    result = delete_resume(ResumeRefInput(user_id=current_user(), resume_id=resume_id))
     if result.error:
         raise HTTPException(400, result.error)
     return result

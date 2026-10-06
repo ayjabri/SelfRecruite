@@ -85,6 +85,7 @@ class UploadResumeInput(BaseModel):
     text: str | None = Field(None, description="The resume as markdown")
     path: str | None = Field(None, description="Or a markdown file to read instead of `text`")
     filename: str | None = Field(None, description="A name to remember the upload by")
+    activate: bool = Field(True, description="Make it the resume used for scoring (and index it); false just adds it to the library")
 
 
 class UploadResumeResult(BaseModel):
@@ -98,8 +99,8 @@ class UploadResumeResult(BaseModel):
 @tool_spec(
     name="upload_resume",
     description=(
-        "Store a user's resume (markdown) as their active resume and index it for scoring. "
-        "If the text is identical to the active resume nothing changes."
+        "Add a markdown resume to the user's library and, by default, make it the one used for "
+        "scoring (indexing it). A resume with identical text already in the library is reused."
     ),
 )
 def upload_resume(args: UploadResumeInput) -> UploadResumeResult:
@@ -111,19 +112,62 @@ def upload_resume(args: UploadResumeInput) -> UploadResumeResult:
         return UploadResumeResult(error="the resume is empty")
     sha = sha_of(text)
     with session() as s, s.begin():
-        current = active_resume(s, uid)
-        if current and current.sha == sha:
-            rid = current.id
-            unchanged = True
+        same = s.scalars(select(Resume).where(Resume.user_id == uid, Resume.sha == sha).order_by(Resume.id.desc())).first()
+        if same is not None:
+            rid, unchanged = same.id, same.active or not args.activate
+            if args.activate and not same.active:
+                s.execute(update(Resume).where(Resume.user_id == uid, Resume.active).values(active=False))
+                same.active = True
         else:
-            s.execute(update(Resume).where(Resume.user_id == uid, Resume.active).values(active=False))
+            if args.activate:
+                s.execute(update(Resume).where(Resume.user_id == uid, Resume.active).values(active=False))
             row = Resume(user_id=uid, filename=args.filename or (Path(args.path).name if args.path else None),
-                         text=text, sha=sha)
+                         text=text, sha=sha, active=args.activate)
             s.add(row)
             s.flush()
             rid, unchanged = row.id, False
+    if not args.activate:
+        return UploadResumeResult(resume_id=rid, sha=sha, unchanged=unchanged)
     indexed = index_golden_source(IndexGoldenInput(user_id=uid))
     return UploadResumeResult(resume_id=rid, sha=sha, unchanged=unchanged, chunks=indexed.chunks, error=indexed.error)
+
+
+class ResumeRefInput(BaseModel):
+    user_id: int | None = Field(None, description="Whose library; default: the current user")
+    resume_id: int = Field(description="resumes.id")
+
+
+class ResumeRefResult(BaseModel):
+    resume_id: int
+    active: bool = False
+    chunks: int = 0
+    error: str | None = None
+
+
+@tool_spec(name="activate_resume", description="Make one of the user's stored resumes the one used for scoring, and index it.")
+def activate_resume(args: ResumeRefInput) -> ResumeRefResult:
+    uid = resolve_user(args.user_id)
+    with session() as s, s.begin():
+        row = s.scalar(select(Resume).where(Resume.id == args.resume_id, Resume.user_id == uid))
+        if row is None:
+            return ResumeRefResult(resume_id=args.resume_id, error="no such resume")
+        s.execute(update(Resume).where(Resume.user_id == uid, Resume.active).values(active=False))
+        row.active = True
+    indexed = index_golden_source(IndexGoldenInput(user_id=uid))
+    return ResumeRefResult(resume_id=args.resume_id, active=True, chunks=indexed.chunks, error=indexed.error)
+
+
+@tool_spec(name="delete_resume", description="Remove a resume from the user's library. The active one cannot be removed; applications that used it keep a blank.")
+def delete_resume(args: ResumeRefInput) -> ResumeRefResult:
+    uid = resolve_user(args.user_id)
+    with session() as s, s.begin():
+        row = s.scalar(select(Resume).where(Resume.id == args.resume_id, Resume.user_id == uid))
+        if row is None:
+            return ResumeRefResult(resume_id=args.resume_id, error="no such resume")
+        if row.active:
+            return ResumeRefResult(resume_id=args.resume_id, active=True, error="this is the resume used for scoring; activate another one first")
+        s.delete(row)
+    return ResumeRefResult(resume_id=args.resume_id)
 
 
 class IndexGoldenInput(BaseModel):

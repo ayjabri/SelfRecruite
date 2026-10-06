@@ -364,6 +364,7 @@ class AnnotateJobInput(BaseModel):
     job_id: int = Field(description="jobs.id to annotate")
     favorite: bool | None = Field(None, description="Mark (true) or unmark (false) as a favorite; omit to leave as is")
     applied: bool | None = Field(None, description="Record (true) or clear (false) that the user applied; omit to leave as is")
+    applied_resume_id: int | None = Field(None, description="Which of the user's resumes went out with the application (resumes.id); 0 clears it")
     notes: str | None = Field(None, description="Replace the user's notes on the job; omit to leave as is")
 
 
@@ -371,6 +372,7 @@ class AnnotateJobResult(BaseModel):
     job_id: int
     favorite: bool = False
     applied_at: datetime | None = None
+    applied_resume_id: int | None = None
     notes: str | None = None
     error: str | None = None
 
@@ -389,6 +391,19 @@ def annotate_job(args: AnnotateJobInput) -> AnnotateJobResult:
             row.favorite = args.favorite
         if args.applied is not None:
             row.applied_at = datetime.now(timezone.utc) if args.applied else None
+            if not args.applied:
+                row.applied_resume_id = None
+        if args.applied_resume_id is not None:
+            if args.applied_resume_id == 0:
+                row.applied_resume_id = None
+            else:
+                from jobagent.models import Resume
+                owned = s.scalar(select(Resume.id).where(Resume.id == args.applied_resume_id, Resume.user_id == uid))
+                if owned is None:
+                    return AnnotateJobResult(job_id=args.job_id, error="no such resume")
+                row.applied_resume_id = owned
+                row.applied_at = row.applied_at or datetime.now(timezone.utc)
         if args.notes is not None:
             row.notes = args.notes.strip() or None
-        return AnnotateJobResult(job_id=args.job_id, favorite=row.favorite, applied_at=row.applied_at, notes=row.notes)
+        return AnnotateJobResult(job_id=args.job_id, favorite=row.favorite, applied_at=row.applied_at,
+                                 applied_resume_id=row.applied_resume_id, notes=row.notes)

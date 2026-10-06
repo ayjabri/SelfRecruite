@@ -1,5 +1,5 @@
 // job tracker: list, detail, marks, notes, possible duplicates
-let jobs = [], selected = null;
+let jobs = [], selected = null, filterResume = 0, myResumes = [];
 
 const money = j => {
   if (j.comp_min == null && j.comp_max == null) return "";
@@ -20,7 +20,7 @@ async function loadSummary() {
 async function loadJobs(keep) {
   const p = new URLSearchParams({
     q: $("q").value, company: $("company").value, label: $("label").value, flag: $("flag").value, sort: $("sort").value, posted: $("posted").value,
-    min_score: $("min_score").value || 0, scope: $("scope").checked ? "all" : "in_scope",
+    min_score: $("min_score").value || 0, scope: $("scope").checked ? "all" : "in_scope", resume_id: filterResume || 0,
   });
   const data = await api("/api/jobs?" + p);
   jobs = data.jobs;
@@ -30,7 +30,7 @@ async function loadJobs(keep) {
 }
 
 function renderList(total) {
-  const shown = jobs.length < total ? `Showing ${jobs.length} of ${total} jobs` : `${total} jobs`;
+  const shown = (jobs.length < total ? `Showing ${jobs.length} of ${total} jobs` : `${total} jobs`) + (filterResume ? ` applied with ${esc((myResumes.find(r => r.id === filterResume) || {}).filename || "resume")} <a href="#" id="clear-resume-filter">×</a>` : "");
   $("list").innerHTML = `<div class="count">${shown}</div>` + jobs.map(j => `
     <div class="row ${j.label || ""} ${j.id === selected ? "sel" : ""}" data-id="${j.id}">
       <div class="scores"><div class="score ${j.gated ? "gated" : ""}" title="${j.gated ? "Capped by a hard gate" : "Fit score"}">${j.fit_score ?? "–"}</div>
@@ -40,10 +40,16 @@ function renderList(total) {
         <div class="m">${[j.seniority !== "unknown" ? j.seniority : "", j.workplace !== "unknown" ? j.workplace : "", money(j), "posted " + j.posted].filter(Boolean).map(esc).join(" · ")}</div>
       </div>
       <div class="tags"><button class="heart ${j.favorite ? "on" : ""}" data-fav="${j.id}" title="Favorite (F)">${j.favorite ? "♥" : "♡"}</button>
-        ${j.applied ? '<span class="tag">applied</span>' : ""}${j.has_notes ? '<span class="tag note">note</span>' : ""}</div>
+        ${j.applied ? `<span class="tag" title="${esc((myResumes.find(r => r.id === j.applied_resume_id) || {}).filename || "")}">applied${j.applied_resume_id ? " ✓" : ""}</span>` : ""}${j.has_notes ? '<span class="tag note">note</span>' : ""}</div>
     </div>`).join("");
 }
 
+async function loadMyResumes() { try { myResumes = await api("/api/resumes"); } catch (e) { myResumes = []; } }
+function resumePicker(j) {
+  if (!j.applied_at) return "";
+  const opts = myResumes.map(r => `<option value="${r.id}" ${r.id === j.applied_resume_id ? "selected" : ""}>${esc(r.filename)}</option>`).join("");
+  return `<label class="f" title="Which resume you sent">with <select id="applied-resume"><option value="0">${myResumes.length ? "resume not recorded" : "no resumes in your library"}</option>${opts}</select></label>`;
+}
 async function select(id) {
   if (notesTimer && selected != null && selected !== id) { clearTimeout(notesTimer); const t = $("notes"); if (t) annotate(selected, {notes: t.value}); notesTimer = null; }
   selected = id;
@@ -108,7 +114,7 @@ function renderDetail(j) {
       <button class="no ${j.label === "not_interested" ? "on" : ""}" data-label="not_interested">Not interested <kbd>X</kbd></button>
       ${j.label ? '<button data-label="clear">Clear <kbd>U</kbd></button>' : ""}
       <button class="fav ${j.favorite ? "on" : ""}" data-annotate="favorite">${j.favorite ? "♥" : "♡"} Favorite <kbd>F</kbd></button>
-      <button class="app ${j.applied_at ? "on" : ""}" data-annotate="applied">${j.applied_at ? "✓ Applied " + esc(j.applied_at) : "Mark applied"} <kbd>A</kbd></button>
+      <button class="app ${j.applied_at ? "on" : ""}" data-annotate="applied">${j.applied_at ? "✓ Applied " + esc(j.applied_at) : "Mark applied"} <kbd>A</kbd></button>${resumePicker(j)}
       ${j.url ? `<a href="${esc(j.url)}" target="_blank" rel="noopener">Open posting ↗</a>` : ""}
       <span class="match" style="color:var(--muted);margin-left:auto"><kbd>J</kbd>/<kbd>K</kbd> next / previous</span>
     </div>
@@ -149,10 +155,10 @@ async function mark(label) {
 async function annotate(id, body) {
   const r = await api(`/api/jobs/${id}/annotate`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
   const j = jobs.find(x => x.id === id);
-  if (j) { j.favorite = r.favorite; j.applied = !!r.applied_at; j.has_notes = !!r.notes; }
+  if (j) { j.favorite = r.favorite; j.applied = !!r.applied_at; j.has_notes = !!r.notes; j.applied_resume_id = r.applied_resume_id; }
   renderList(jobs.length);
   loadSummary();
-  if (id === selected && (body.favorite != null || body.applied != null)) select(id);
+  if (id === selected && (body.favorite != null || body.applied != null || body.applied_resume_id != null)) select(id);
   return r;
 }
 function toggle(kind) {
@@ -224,12 +230,13 @@ $("dups").addEventListener("click", async e => {
   const b = e.target.closest("button[data-decision]"); if (!b) return;
   decidePairs([+b.closest(".pairc").dataset.pair], b.dataset.decision);
 });
-$("list").addEventListener("click", e => { const r = e.target.closest(".row"); if (r) select(+r.dataset.id); });
+$("list").addEventListener("click", e => { if (e.target.id === "clear-resume-filter") { e.preventDefault(); filterResume = 0; return loadJobs(false); } const r = e.target.closest(".row"); if (r) select(+r.dataset.id); });
 $("detail").addEventListener("click", e => {
   const b = e.target.closest("button[data-label]"); if (b) return mark(b.dataset.label);
   const a = e.target.closest("button[data-annotate]"); if (a) toggle(a.dataset.annotate);
 });
 $("detail").addEventListener("input", e => { if (e.target.id === "notes") notesChanged(); });
+$("detail").addEventListener("change", e => { if (e.target.id === "applied-resume" && selected != null) annotate(selected, {applied_resume_id: +e.target.value}); });
 $("list").addEventListener("click", e => {
   const h = e.target.closest("button[data-fav]");
   if (h) { e.stopPropagation(); const j = jobs.find(x => x.id === +h.dataset.fav); annotate(j.id, {favorite: !j.favorite}); }

@@ -1,6 +1,6 @@
 # Multi-user plan — Self Recruiter (AI) as a platform
 
-Date: Oct 6, 2026. Status: **approved Oct 6, 2026. Phases 1-4 done (Oct 6); Phase 5 (hardening) next.**
+Date: Oct 6, 2026. Status: **approved Oct 6, 2026. all five phases done (Oct 6). Next: tailoring, MCP, more sources.**
 
 ## Goal
 
@@ -185,6 +185,29 @@ Config files keep one job: **defaults for a new profile** (`config/*.yaml` → t
   everywhere), the queue, and recent stage runs by day (`GET /api/admin/overview`).
 - Not built: a public landing page (the sign-in page serves), PDF/DOCX resumes (decision 5).
 
+## Phase 5 as built (Oct 6, 2026)
+
+- **Reverse proxy:** `deploy/Caddyfile` (LAN block on :80 now; a commented HTTPS block for a
+  domain later). The UI service binds 127.0.0.1:8765 with `--no-reload --proxy-headers`, one
+  worker on purpose (the run queue lives in the server process); unit hardened with
+  NoNewPrivileges / ProtectSystem. Install: `sudo apt install caddy`, copy the Caddyfile,
+  reinstall `systemd/jobagent-ui.service`.
+- **App hardening:** 4 MB body limit (Caddy enforces the same), security headers (CSP, frame
+  denial, nosniff, referrer), `/healthz`, session cookie `Secure` whenever the request is HTTPS
+  (or `COOKIE_SECURE=true`).
+- **Delete account:** `POST /api/auth/delete` with the password; cascades remove profile,
+  resumes, chunks, marks, judgements, model, sessions. The last admin cannot delete itself.
+  Settings → Account has the button.
+- **Backups:** `scripts/backup_db.sh` copies each dump off-box when `BACKUP_REMOTE` is set in
+  .env (rsync target or rclone remote).
+- **Resume library (added with this phase):** many markdown resumes per user (`resumes`), one
+  active for scoring; upload a .md file, paste, download, activate, delete; each application
+  records which resume went out (`user_jobs.applied_resume_id`, picker next to "Applied" in the
+  tracker, filter the tracker by resume from Settings → Resumes). Tools: `upload_resume`
+  (`activate`), `activate_resume`, `delete_resume`, `annotate_job(applied_resume_id)`.
+- Still to do for the internet: a domain, the HTTPS block, `REGISTRATION_OPEN=false` if invite
+  only, password reset by email (SMTP).
+
 ## Order and effort
 
 | Phase | Depends on | Rough size |
@@ -193,7 +216,7 @@ Config files keep one job: **defaults for a new profile** (`config/*.yaml` → t
 | 2 Per-user tools, two pipelines, worker | 1 | done |
 | 3 Auth | 1 | done |
 | 4 UI (onboarding, login, split files, admin) | 2, 3 | done |
-| 5 Hardening | 3, 4 | 1 session |
+| 5 Hardening | 3, 4 | done |
 
 Phases 1–3 can be built and tested from the CLI with user 1 before any UI changes, so the
 current UI keeps working throughout (it will read `user_jobs` for user 1 after Phase 1).

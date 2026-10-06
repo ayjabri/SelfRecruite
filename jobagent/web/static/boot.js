@@ -20,8 +20,8 @@ async function whoami() {
     $("run-pipeline").hidden = $("run-tool").hidden = true;
   }
   $("admintab").hidden = !isAdmin();
-  const resume = await api("/api/resume");
-  if (!resume) openOnboarding();  // first visit: nothing to score against yet
+  await loadMyResumes();
+  if (!myResumes.length) openOnboarding();  // first visit: nothing to score against yet
 }
 let lastTab = "jobs"; try { lastTab = localStorage.getItem("tab") || "jobs"; } catch (e) {}
 whoami().then(() => { if (lastTab !== "jobs" && !(lastTab === "admin" && !isAdmin())) showTab(lastTab); return loadSummary(); }).then(() => loadJobs(false)).catch(e => { $("detail").innerHTML = `<div class="empty">Could not load jobs: ${esc(e.message)}</div>`; });
