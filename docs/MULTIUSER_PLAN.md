@@ -1,6 +1,6 @@
 # Multi-user plan — Self Recruiter (AI) as a platform
 
-Date: Oct 6, 2026. Status: **approved Oct 6, 2026. all five phases done (Oct 6). Next: tailoring, MCP, more sources.**
+Date: Oct 6, 2026. Status: **approved Oct 6, 2026. all five phases done (Oct 6); the per-job AI (docs/KEYWORDS_PLAN.md) is built. Next: more job agents (commentary, tailoring), chat box, MCP, more sources.**
 
 ## Goal
 

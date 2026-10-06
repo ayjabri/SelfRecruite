@@ -19,7 +19,7 @@ from jobagent.config import ROOT
 RUNS_DIR = ROOT / "data" / "runs"
 KEEP = 60
 LANES = {"llm": 1, "default": 2}          # lane -> how many may run at once
-LLM_TOOLS = ("judge_", "enrich_")        # tool-name prefixes that call the chat model
+LLM_TOOLS = ("judge_", "enrich_", "job_chat")   # tool-name prefixes that call the shared chat model
 _lock = threading.Lock()
 _runs: dict[str, dict] = {}
 _queue: list[str] = []                    # run ids waiting, in order
@@ -68,12 +68,12 @@ def active() -> list[dict]:
     return [_public(r) for r in _runs.values() if r["status"] in ("running", "queued")]
 
 
-def start(argv: list[str], label: str, user_id: int | None = None) -> dict:
+def start(argv: list[str], label: str, user_id: int | None = None, lane: str | None = None) -> dict:
     """Queue `jobagent <argv>`; it starts as soon as its lane has room."""
     with _lock:
         RUNS_DIR.mkdir(parents=True, exist_ok=True)
         run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")[:-3]
-        run = {"id": run_id, "label": label, "argv": argv, "lane": lane_for(argv), "user_id": user_id,
+        run = {"id": run_id, "label": label, "argv": argv, "lane": lane or lane_for(argv), "user_id": user_id,
                "status": "queued", "exit_code": None, "queued_at": datetime.now(timezone.utc).isoformat(),
                "started_at": None, "finished_at": None, "log": str(RUNS_DIR / f"{run_id}.log")}
         _runs[run_id] = run

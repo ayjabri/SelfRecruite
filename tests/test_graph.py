@@ -27,4 +27,4 @@ def test_graph_is_generated_from_the_registry(monkeypatch):
     assert all(e in edges for e in stage_chain)  # crawl stages in order, then the per-user branch
     assert "fast_score_agent" not in g.nodes     # user-scope stages run inside user_stages, per user
     from jobagent.agents.registry import stages
-    assert [a.name for a in stages("user")] == ["fast_score_agent", "scoring_agent", "tailor_agent"]
+    assert [a.name for a in stages("user")] == ["fast_score_agent", "tailor_agent"]

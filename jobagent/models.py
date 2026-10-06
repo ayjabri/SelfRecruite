@@ -231,3 +231,58 @@ class PossibleDuplicate(Base):
     title_ratio: Mapped[int] = mapped_column(SmallInteger)
     status: Mapped[str] = mapped_column(Text, server_default="pending")  # pending | same | different
     decided_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class Prompt(Base):
+    """An AI skill (system prompt) shared by every user; admins edit it."""
+    __tablename__ = "prompts"
+
+    name: Mapped[str] = mapped_column(Text, primary_key=True)
+    text: Mapped[str] = mapped_column(Text)
+    version: Mapped[int] = mapped_column(Integer, server_default="1")
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    updated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class PromptVersion(Base):
+    """Every earlier text of a prompt, so an admin can restore one."""
+    __tablename__ = "prompt_versions"
+    __table_args__ = (UniqueConstraint("name", "version"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(ForeignKey("prompts.name", ondelete="CASCADE"))
+    version: Mapped[int] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(Text)
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    updated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class JobMessage(Base):
+    """One turn of a user's conversation about one job (the job graph's transcript)."""
+    __tablename__ = "job_messages"
+    __table_args__ = (Index("job_messages_thread_idx", "user_id", "job_id", "id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    job_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("jobs.id", ondelete="CASCADE"))
+    role: Mapped[str] = mapped_column(Text)                      # user | assistant
+    content: Mapped[str] = mapped_column(Text)
+    agent: Mapped[str | None] = mapped_column(Text)              # which specialist answered
+    tool_calls: Mapped[list | None] = mapped_column(JSONB)       # the facts behind an assistant turn
+    model: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
+class JobKeywords(Base):
+    """What the keywords agent extracted for one user on one job (latest only)."""
+    __tablename__ = "job_keywords"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    job_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("jobs.id", ondelete="CASCADE"), primary_key=True)
+    keywords: Mapped[list] = mapped_column(JSONB)                # [{term, category, weight, evidence}]
+    summary: Mapped[str | None] = mapped_column(Text)
+    context: Mapped[dict | None] = mapped_column(JSONB)          # the similar-role terms that were offered
+    model: Mapped[str | None] = mapped_column(Text)
+    prompt_version: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())

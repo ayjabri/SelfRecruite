@@ -209,3 +209,7 @@
   .md a { color: var(--accent); }
   .md p:empty { display: none; }
   .md strong, .md b { font-weight: 700; }
+  .kwgroup { display: flex; gap: 8px; align-items: flex-start; margin: 4px 0; }
+  .kwcat { flex: none; width: 90px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding-top: 4px; }
+  .chip.w3 { font-weight: 700; } .chip.w1 { opacity: .75; }
+  .tag.kw { background: var(--sel); color: var(--accent); border-color: var(--accent); }

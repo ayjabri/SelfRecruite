@@ -26,7 +26,7 @@ PROFILE_SECTIONS = {
                         "note": "Re-check stored postings so newly wanted titles get parsed; your scope and scores update on the next fast score"}},
     "skills": {"title": "Skills", "description": "Skills you have beyond what your resume text mentions, and ones not to claim.",
                "after": None},
-    "llm": {"title": "AI account", "description": "Use the shared local model, or connect your own Claude or OpenAI account for judgement and tailoring.",
+    "llm": {"title": "AI model", "description": "The local model (free) or Claude with your own API key, for keyword extraction and the AI features to come.",
             "after": None},
 }
 FILES = {
@@ -68,14 +68,16 @@ def _plain(obj):
 
 def _llm_view(llm: dict) -> dict:
     """What the page may see of the llm section: never the key itself."""
-    return {"provider": llm.get("provider") or "shared", "model": llm.get("model") or "",
+    from jobagent.llm import provider_of
+    return {"provider": provider_of(llm), "model": llm.get("model") or "",
             "has_key": bool(llm.get("api_key_enc")), "judge_budget_per_day": llm.get("judge_budget_per_day", 20)}
 
 
 def _llm_save(user_id: int | None, data: dict) -> dict:
+    from jobagent.llm import provider_of
     from jobagent.secrets import encrypt
     current = get_profile(user_id)["llm"] or {}
-    new = {"provider": data.get("provider") or "shared", "model": (data.get("model") or "").strip() or None,
+    new = {"provider": provider_of(data), "model": (data.get("model") or "").strip() or None,
            "judge_budget_per_day": current.get("judge_budget_per_day", 20)}
     if data.get("judge_budget_per_day") not in (None, ""):
         new["judge_budget_per_day"] = int(data["judge_budget_per_day"])

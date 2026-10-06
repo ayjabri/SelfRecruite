@@ -7,10 +7,15 @@ from typing import Literal
 @dataclass(frozen=True)
 class AgentSpec:
     name: str
-    kind: Literal["source", "stage"]  # sources fan out in parallel; stages run in `order`
+    # sources fan out in parallel; stages run in `order`; job agents answer a user about one job
+    kind: Literal["source", "stage", "job"]
     description: str                  # what the orchestrator reads when deciding who to dispatch
-    prompt: str                       # the agent's own system prompt
+    prompt: str                       # the agent's own system prompt (job agents: a fallback for prompt_name)
     tools: tuple[str, ...]            # names in jobagent.tools.TOOLS
+    # job agents only: the shared, admin-editable skill (jobagent.prompts) that is the system prompt,
+    # and example phrasings the orchestrator matches before spending a model call on routing
+    prompt_name: str | None = None
+    intents: tuple[str, ...] = ()
     order: int = 0                    # stages only
     # stages only: "crawl" runs once on the shared job pool; "user" runs once per active user
     # (its tools get user_id) after every crawl stage has finished
@@ -34,6 +39,10 @@ def register_agent(spec: AgentSpec) -> AgentSpec:
 
 def sources() -> list[AgentSpec]:
     return [a for a in AGENTS.values() if a.kind == "source"]
+
+
+def job_agents() -> list[AgentSpec]:
+    return [a for a in AGENTS.values() if a.kind == "job"]
 
 
 def stages(scope: str | None = None) -> list[AgentSpec]:

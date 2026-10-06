@@ -20,7 +20,7 @@ from sqlalchemy import delete, func, or_, select
 from jobagent import auth
 from jobagent.config import ROOT
 from jobagent.db import session
-from jobagent.models import Company, Job, JobSource, PossibleDuplicate, RawPosting, Resume, Run, Session, User, UserJob
+from jobagent.models import Company, Job, JobKeywords, JobMessage, JobSource, PossibleDuplicate, RawPosting, Resume, Run, Session, User, UserJob
 from jobagent.skills import skill_gap
 from jobagent.tools import TOOLS
 from jobagent.tools.common import NORMALIZERS
@@ -399,6 +399,7 @@ def list_jobs(
                  "match": (UserJob.match_score.desc().nulls_last(), UserJob.fit_score.desc().nulls_last(), Job.id)}[sort]
         total = s.scalar(select(func.count()).select_from(query.subquery()))
         rows = s.execute(query.order_by(*order).limit(min(limit, 1000))).all()
+        with_keywords = set(s.scalars(select(JobKeywords.job_id).where(JobKeywords.user_id == uid, JobKeywords.job_id.in_([j.id for j, _, _ in rows]))))
         return {"total": total, "jobs": [{
             "id": j.id, "title": j.title, "company": name, "location": _location_text(j.locations),
             "workplace": j.workplace_type, "seniority": j.seniority,
@@ -407,6 +408,7 @@ def list_jobs(
             "posted": (j.source_posted_at or j.first_seen_at).date().isoformat(),
             "favorite": bool(u and u.favorite), "applied": bool(u and u.applied_at), "has_notes": bool(u and u.notes),
             "applied_resume_id": u.applied_resume_id if u else None,
+            "has_keywords": j.id in with_keywords,
             "match_score": u.match_score if u else None,
             "comp_min": float(j.comp_min) if j.comp_min is not None else None,
             "comp_max": float(j.comp_max) if j.comp_max is not None else None,
@@ -696,6 +698,130 @@ def put_config(name: str, body: ConfigBody):
     except Exception as e:  # bad YAML or unwritable file: tell the page why
         raise HTTPException(400, f"{type(e).__name__}: {e}")
     raise HTTPException(400, "send text or data")
+
+
+# --- the user's AI model ---------------------------------------------------------------------
+
+@app.get("/api/llm/models")
+def llm_models():
+    from jobagent.llm import available_models
+    return available_models(current_user())
+
+
+class KeyTest(BaseModel):
+    provider: str = "anthropic"
+    api_key: str | None = None      # a pasted key to try before saving; omit to test the stored one
+
+
+@app.post("/api/llm/test")
+def llm_test(body: KeyTest):
+    from jobagent.llm import test_key, user_llm
+    key = (body.api_key or "").strip()
+    if not key:
+        own = user_llm(current_user())
+        if own is None:
+            return {"ok": False, "detail": "no key stored", "models": []}
+        key, body.provider = own["api_key"], own["provider"]
+    result = test_key(body.provider, key)
+    return {**result, "models": [m["id"] for m in result["models"]]}
+
+
+# --- AI skills (shared prompts), admin only ---------------------------------------------------
+
+@app.get("/api/prompts")
+def prompts_list():
+    require_admin()
+    from jobagent import prompts
+    return prompts.list_prompts()
+
+
+@app.get("/api/prompts/{name}")
+def prompt_get(name: str):
+    require_admin()
+    from jobagent import prompts
+    try:
+        text, version = prompts.get_prompt(name)
+    except KeyError:
+        raise HTTPException(404, "no such prompt")
+    return {"name": name, "text": text, "version": version, "history": prompts.history(name)}
+
+
+class PromptBody(BaseModel):
+    text: str | None = None
+    restore_version: int | None = None
+
+
+@app.put("/api/prompts/{name}")
+def prompt_put(name: str, body: PromptBody):
+    admin = require_admin()
+    from jobagent import prompts
+    try:
+        if body.restore_version is not None:
+            text, version = prompts.restore_prompt(name, body.restore_version, admin.id)
+        elif body.text is not None:
+            text, version = prompts.save_prompt(name, body.text, admin.id)
+        else:
+            raise HTTPException(400, "send text or restore_version")
+    except KeyError:
+        raise HTTPException(404, "no such prompt or version")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"name": name, "text": text, "version": version, "history": prompts.history(name)}
+
+
+# --- the AI conversation about one job -------------------------------------------------------
+
+class ChatBody(BaseModel):
+    message: str
+
+
+@app.post("/api/jobs/{job_id}/chat")
+def job_chat_endpoint(job_id: int, body: ChatBody):
+    """Queues one message through the job graph. The shared model waits its turn in the llm lane
+    (daily budget applies); a user's own Claude key runs in the default lane right away."""
+    from jobagent.llm import uses_shared_model
+    uid = current_user()
+    with session() as s:
+        if s.get(Job, job_id) is None:
+            raise HTTPException(404, "no such job")
+    msg = body.message.strip()
+    if not msg:
+        raise HTTPException(400, "say something")
+    if uses_shared_model(uid):
+        budget = int((configs.get_profile(uid)["llm"] or {}).get("judge_budget_per_day") or 0)
+        if budget:
+            from datetime import time as _time
+            today = datetime.combine(datetime.now(timezone.utc).date(), _time.min, tzinfo=timezone.utc)
+            with session() as s:
+                used = s.scalar(select(func.count()).select_from(JobMessage).where(
+                    JobMessage.user_id == uid, JobMessage.role == "assistant", JobMessage.created_at >= today))
+            if used >= budget:
+                raise HTTPException(429, f"daily budget of {budget} AI calls on the shared model used up; connect your own Claude key to lift it")
+    argv = ["run", "job_chat", "--json", json.dumps({"user_id": uid, "job_id": job_id, "message": msg})]
+    return runs.start(argv, f"AI on job {job_id}: {msg[:60]}", uid, lane="llm" if uses_shared_model(uid) else "default")
+
+
+@app.get("/api/jobs/{job_id}/messages")
+def job_messages(job_id: int):
+    from jobagent.tools.keywords import transcript
+    uid = current_user()
+    active = [r for r in runs.active() if r.get("user_id") == uid and r["argv"][:2] == ["run", "job_chat"]
+              and json.loads(r["argv"][3]).get("job_id") == job_id]
+    return {"messages": transcript(uid, job_id), "pending": [{"id": r["id"], "status": r["status"], "lane": r["lane"]} for r in active]}
+
+
+@app.get("/api/jobs/{job_id}/keywords")
+def job_keywords_get(job_id: int):
+    uid = current_user()
+    with session() as s:
+        row = s.get(JobKeywords, (uid, job_id))
+        if row is None:
+            return None
+        from jobagent.skills import my_skills
+        have = {x.lower() for x in my_skills(uid)}
+        return {"keywords": [{**k, "have": k["term"].lower() in have} for k in row.keywords], "summary": row.summary,
+                "model": row.model, "prompt_version": row.prompt_version, "created_at": row.created_at.isoformat(timespec="seconds"),
+                "similar": (row.context or {}).get("similar", [])}
 
 
 # --- the current user's resume library -----------------------------------------------------

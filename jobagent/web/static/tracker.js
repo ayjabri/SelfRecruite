@@ -40,7 +40,7 @@ function renderList(total) {
         <div class="m">${[j.seniority !== "unknown" ? j.seniority : "", j.workplace !== "unknown" ? j.workplace : "", money(j), "posted " + j.posted].filter(Boolean).map(esc).join(" · ")}</div>
       </div>
       <div class="tags"><button class="heart ${j.favorite ? "on" : ""}" data-fav="${j.id}" title="Favorite (F)">${j.favorite ? "♥" : "♡"}</button>
-        ${j.applied ? `<span class="tag" ${j.applied_resume_id ? `data-resume="${j.applied_resume_id}" style="cursor:pointer"` : ""} title="${esc((myResumes.find(r => r.id === j.applied_resume_id) || {}).filename || "resume not recorded")}">applied${j.applied_resume_id ? " ✓" : ""}</span>` : ""}${j.has_notes ? '<span class="tag note">note</span>' : ""}</div>
+        ${j.has_keywords ? '<span class="tag kw" title="Keywords extracted">K</span>' : ""}${j.applied ? `<span class="tag" ${j.applied_resume_id ? `data-resume="${j.applied_resume_id}" style="cursor:pointer"` : ""} title="${esc((myResumes.find(r => r.id === j.applied_resume_id) || {}).filename || "resume not recorded")}">applied${j.applied_resume_id ? " ✓" : ""}</span>` : ""}${j.has_notes ? '<span class="tag note">note</span>' : ""}</div>
     </div>`).join("");
 }
 
@@ -132,6 +132,7 @@ function renderDetail(j) {
     </div>
     <div class="facts">${facts}${gates}</div>
     ${skillBoxes(j.skills)}
+    <div class="card" id="kw-card"><h3>Keywords the AI found <span class="match" style="color:var(--muted);text-transform:none;letter-spacing:0">· what an applicant-tracking system scans for</span></h3><div id="kw-body" class="sub">loading…</div></div>
     <div class="card"><h3>Your notes</h3><textarea id="notes" placeholder="Anything you want to remember about this job: who you spoke to, why it stands out, follow-ups…">${esc(j.notes)}</textarea><div class="saved" id="notes-saved"></div></div>
     ${j.fit_score == null ? '<div class="card">This job has no fit score (it was filtered out before scoring).</div>' : `
     <div class="fitrow">
@@ -154,6 +155,7 @@ function renderDetail(j) {
       ${j.applied_resume_id ? `<div class="card" id="resume-card"><h3>Resume you applied with</h3><div class="sub">loading…</div></div>` : ""}
     </div>`;
   if (j.applied_resume_id) loadResumeCard(j.applied_resume_id);
+  loadKeywords(j.id);
   $("detail").scrollTop = 0;
 }
 
@@ -261,6 +263,39 @@ $("apply-file").addEventListener("change", e => { uploadForJob(e.target.files[0]
 $("list").addEventListener("click", e => {
   const tag = e.target.closest(".tag[data-resume]"); if (tag) { e.stopPropagation(); const row = tag.closest(".row"); select(+row.dataset.id).then(scrollToResume); }
 }, true);
+
+// ---- keywords: the first job-agent result; the button is a chat message
+let kwTimer = null;
+const KW_ORDER = ["skill", "tool", "domain", "certification", "title", "soft"];
+async function loadKeywords(jobId) {
+  clearTimeout(kwTimer);
+  const box = $("kw-body"); if (!box || selected !== jobId) return;
+  const [kw, chat] = await Promise.all([api(`/api/jobs/${jobId}/keywords`), api(`/api/jobs/${jobId}/messages`)]);
+  if (selected !== jobId) return;
+  const pending = chat.pending.length ? chat.pending[0] : null;
+  const last = chat.messages.length ? chat.messages[chat.messages.length - 1] : null;
+  const btn = `<button id="kw-extract" class="yes ${kw ? "" : "on"}" ${pending ? "disabled" : ""}>${pending ? (pending.status === "queued" ? "Waiting for the AI…" : "Extracting…") : kw ? "Extract again" : "Extract keywords"}</button>`;
+  let body = "";
+  if (kw) {
+    const groups = KW_ORDER.filter(c => kw.keywords.some(k => k.category === c));
+    body = `<p style="margin:0 0 8px">${esc(kw.summary || "")}</p>` + groups.map(c => `<div class="kwgroup"><span class="kwcat">${c}</span><span class="skills">${kw.keywords.filter(k => k.category === c).map(k =>
+      `<span class="chip ${k.have ? "ok" : "gap"} w${k.weight}" title="${esc(k.evidence || "")}${k.have ? " · on your resume" : " · not on your resume"}">${esc(k.term)}</span>`).join("")}</span></div>`).join("") +
+      `<div class="sub" style="margin-top:8px">${kw.keywords.length} keywords · green = in your skills, red = missing · ${esc(kw.model || "")} · ${esc(kw.created_at.slice(0, 16).replace("T", " "))} <a href="#" id="kw-copy">copy as list</a></div>`;
+  } else if (!pending) body = `<div class="sub">Not extracted yet. The AI reads the full posting plus the terms similar roles ask for, and returns the keywords a resume for this job should contain.</div>`;
+  if (last && last.role === "assistant" && last.error) body += `<div class="cfgmsg err">${esc(last.error)}</div>`;
+  box.className = ""; box.innerHTML = `<div class="actions" style="margin:0 0 10px">${btn}${pending ? `<span class="sub">${pending.status === "queued" ? "queued in the " + esc(pending.lane) + " lane" : "running"}</span>` : ""}</div>${body}`;
+  if (pending) kwTimer = setTimeout(() => loadKeywords(jobId), 3000);
+}
+async function extractKeywords() {
+  const id = selected; if (id == null) return;
+  const box = $("kw-body");
+  try { await api(`/api/jobs/${id}/chat`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({message: "extract keywords"})}); loadKeywords(id); }
+  catch (e) { if (box) box.insertAdjacentHTML("beforeend", `<div class="cfgmsg err">${esc(e.message.replace(/^.*"detail":"?/, "").replace(/"?}$/, ""))}</div>`); }
+}
+$("detail").addEventListener("click", e => {
+  if (e.target.id === "kw-extract") return extractKeywords();
+  if (e.target.id === "kw-copy") { e.preventDefault(); api(`/api/jobs/${selected}/keywords`).then(kw => navigator.clipboard.writeText(kw.keywords.map(k => k.term).join(", ")).then(() => { e.target.textContent = "copied"; })); }
+});
 
 // ---- the resume used for an application, shown beside the full posting text and editable in place
 let rcard = {id: null, text: "", filename: ""};

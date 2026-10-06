@@ -24,14 +24,6 @@ const CONFIG_FORMS = {
     {path: "gates.pay_floor", type: "number", label: "Pay floor", help: "cap jobs whose top of range is below this (annual). Empty = off"},
     {path: "gates.allowed_states", type: "tags", label: "Allowed states", help: "cap non-remote jobs located elsewhere"},
   ],
-  llm: [
-    {section: "AI account", help: "The shared local model judges up to your daily budget. Your own account lifts the cap and will power commentary and resume tailoring. Keys are encrypted on the server and never shown again."},
-    {path: "provider", type: "choice", label: "Provider", options: [["shared", "Shared local model (Ollama)"], ["anthropic", "Claude (Anthropic)"], ["openai", "OpenAI"]]},
-    {path: "model", type: "text", label: "Model", help: "leave empty for the provider's default (Claude: claude-sonnet-5-5, OpenAI: gpt-5)"},
-    {path: "api_key", type: "secret", label: "API key", help: "paste to set or replace; leave empty to keep the stored key"},
-    {path: "clear_key", type: "bool", label: "Remove stored key"},
-    {path: "judge_budget_per_day", type: "number", label: "Daily judgement budget", help: "jobs per day the shared model judges for you; 0 = unlimited"},
-  ],
   skills: [
     {path: "have", type: "tags", label: "Skills you also have", help: "beyond what your resume text mentions; names from the skill catalogue"},
     {path: "not_have", type: "tags", label: "Skills not to claim", help: "mentioned in your resume but you would rather not claim"},
@@ -71,11 +63,12 @@ async function loadConfigs() {
     `<button data-cfg="resume" class="${cfgName === "resume" ? "on" : ""}" title="Your resumes (markdown)">Resumes</button>` +
     `<button data-cfg="account" class="${cfgName === "account" ? "on" : ""}" title="Change your password">Account</button>` +
     `<button id="cfg-wizard" title="Walk through resume, roles, location and skills again">Set up again…</button>` +
-    (shared.length ? `<span class="match" style="color:var(--muted);align-self:center;margin-left:12px">Shared:</span>` + shared.map(btn).join("") : "");
-  if (cfgName === "resume") renderResume(); else if (cfgName === "account") renderAccount(); else renderConfig();
+    (shared.length ? `<span class="match" style="color:var(--muted);align-self:center;margin-left:12px">Shared:</span>` + shared.map(btn).join("") + `<button data-cfg="prompts" class="${cfgName === "prompts" ? "on" : ""}" title="The system prompts the AI features run with">AI skills</button>` : "");
+  if (cfgName === "resume") renderResume(); else if (cfgName === "account") renderAccount(); else if (cfgName === "prompts") renderPrompts(); else renderConfig();
 }
 function renderConfig() {
   const c = configs[cfgName]; if (!c) return;
+  if (cfgName === "llm") return renderLlm(c);
   const isFile = c.kind === "file";
   const head = `<div class="cfghead"><b>${esc(c.title)}</b>${isFile ? `<span class="path">${esc(c.path)}</span>` : ""}<span class="match" style="color:var(--muted)">${esc(c.description)}</span>
     <span class="right">${isFile ? `<label class="f"><input type="checkbox" id="cfg-yaml" ${cfgYaml ? "checked" : ""}> edit as YAML</label>` : ""}<button id="cfg-reload">Discard changes</button><button class="save" id="cfg-save">Save</button></span></div>
@@ -112,6 +105,58 @@ const delBtn = '<td><button class="del" data-del title="remove">×</button></td>
 const tableRow = (cols, row = {}) => `<tr>${cols.map(c => `<td><input type="text" data-col="${esc(c)}" value="${esc(row[c] ?? "")}"></td>`).join("")}${delBtn}</tr>`;
 const mapRow = (k = "", list = []) => `<tr><td style="width:220px"><input type="text" data-key value="${esc(k)}"></td><td><input type="text" data-list value="${esc(list.join(", "))}"></td>${delBtn}</tr>`;
 const familyRow = (k = "", fam = {}) => `<tr><td style="width:200px"><input type="text" data-key value="${esc(k)}"></td><td><input type="number" class="num" data-weight value="${fam.weight ?? 1}" step="0.05"></td><td><input type="text" data-list value="${esc((fam.keywords || []).join(", "))}"></td>${delBtn}</tr>`;
+
+// ---- AI model: local (free) or Claude with the user's own key; model list fetched from Anthropic
+async function renderLlm(c) {
+  const d = c.data, claude = d.provider === "anthropic";
+  let models = null;
+  if (claude && d.has_key) { try { models = await api("/api/llm/models"); } catch (e) { models = {models: [], error: e.message}; } }
+  const modelOpts = models ? models.models.map(m => `<option value="${esc(m.id)}" ${m.id === (d.model || models.current) ? "selected" : ""}>${esc(m.name || m.id)}</option>`).join("") : "";
+  $("cfgbody").innerHTML = `<div class="cfghead"><b>${esc(c.title)}</b><span class="match" style="color:var(--muted)">${esc(c.description)}</span>
+      <span class="right"><button id="cfg-reload">Discard changes</button><button class="save" id="cfg-save">Save</button></span></div><div class="cfgmsg" id="cfg-msg"></div>
+    <div class="card">
+      <div class="field cfg" data-path="provider" data-type="choice"><label>Model</label><div><select id="llm-provider"><option value="local" ${!claude ? "selected" : ""}>Local model on this server (free, shared, daily budget)</option><option value="anthropic" ${claude ? "selected" : ""}>Claude with my own API key</option></select></div>
+        <div class="help">${claude ? "Calls go straight to Anthropic on your account: no queue, no budget." : "Shared GPU: requests wait their turn; " + (d.judge_budget_per_day ? d.judge_budget_per_day + " AI calls per day." : "no daily limit.")}</div></div>
+      <div id="llm-claude" ${claude ? "" : "hidden"}>
+        <div class="field cfg"><label>API key</label><div style="display:flex;gap:8px;align-items:center"><input type="password" id="llm-key" autocomplete="new-password" placeholder="${d.has_key ? "a key is stored; paste a new one to replace it" : "sk-ant-…"}" style="flex:1"><button id="llm-test">Test key</button>${d.has_key ? '<button id="llm-clear" class="del" title="Remove the stored key">×</button>' : ""}</div>
+          <div class="help">Encrypted on the server and never shown again.</div></div>
+        <div class="field cfg"><label>Claude model</label><div>${models ? `<select id="llm-model">${modelOpts}</select>` : `<input type="text" id="llm-model" value="${esc(d.model || "")}" placeholder="save a working key first to see the list">`}</div>
+          <div class="help">${models ? (models.error ? "Could not fetch the list from Anthropic (" + esc(models.error) + "); showing known models." : "Models available to your key, newest first.") : "The list is fetched from Anthropic once a key is stored."}</div></div>
+      </div>
+      <div id="llm-local" ${claude ? "hidden" : ""}><div class="field cfg"><label>Model in use</label><div><input type="text" value="${esc((models && models.current) || "the server's LLM_MODEL")}" disabled></div></div></div>
+    </div>`;
+}
+function collectLlm() {
+  const provider = $("llm-provider").value;
+  const modelEl = $("llm-model");
+  return {provider, model: provider === "anthropic" && modelEl ? modelEl.value : "", api_key: $("llm-key") ? $("llm-key").value : "", clear_key: false};
+}
+async function testLlmKey() {
+  const msg = $("cfg-msg"); msg.className = "cfgmsg"; msg.textContent = "Testing…";
+  try {
+    const r = await api("/api/llm/test", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({provider: "anthropic", api_key: $("llm-key").value})});
+    msg.className = r.ok ? "cfgmsg ok" : "cfgmsg err"; msg.textContent = r.detail;
+  } catch (e) { msg.className = "cfgmsg err"; msg.textContent = e.message; }
+}
+$("cfgbody").addEventListener("change", e => { if (e.target.id === "llm-provider") { const claude = e.target.value === "anthropic"; $("llm-claude").hidden = !claude; $("llm-local").hidden = claude; } });
+
+// ---- AI skills: the shared system prompts, admins only
+let promptSel = null;
+async function renderPrompts() {
+  const list = await api("/api/prompts");
+  if (!promptSel && list.length) promptSel = list[0].name;
+  const cur = promptSel ? await api("/api/prompts/" + promptSel) : null;
+  $("cfgbody").innerHTML = `<div class="cfghead"><b>AI skills</b><span class="match" style="color:var(--muted)">The system prompts every user's AI work runs with. One per capability; every save keeps the previous version.</span></div>
+    <div class="cfgnav">${list.map(p => `<button data-prompt="${esc(p.name)}" class="${p.name === promptSel ? "on" : ""}">${esc(p.name)} <span class="match" style="color:var(--muted)">v${p.version}</span></button>`).join("")}</div>
+    ${cur ? `<div class="cfghead"><b>${esc(cur.name)}</b><span class="match" style="color:var(--muted)">version ${cur.version}</span>
+        <span class="right">${cur.history.length ? `<select id="prompt-restore"><option value="">restore an earlier version…</option>${cur.history.map(h => `<option value="${h.version}">v${h.version} · ${esc((h.updated_at || "").slice(0, 16).replace("T", " "))}</option>`).join("")}</select>` : ""}<button id="prompt-reload">Discard changes</button><button class="save" id="prompt-save">Save</button></span></div>
+      <div class="cfgmsg" id="cfg-msg"></div><textarea class="yaml" id="prompt-text" spellcheck="false">${esc(cur.text)}</textarea>` : '<div class="sub">No prompts found.</div>'}`;
+}
+async function savePrompt(body) {
+  const msg = $("cfg-msg"); msg.className = "cfgmsg"; msg.textContent = "Saving…";
+  try { const r = await api("/api/prompts/" + promptSel, {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)}); await renderPrompts(); $("cfg-msg").className = "cfgmsg ok"; $("cfg-msg").textContent = `Saved as version ${r.version}.`; }
+  catch (e) { msg.className = "cfgmsg err"; msg.textContent = e.message.replace(/^.*"detail":"?/, "").replace(/"?}$/, ""); }
+}
 
 let resumeSel = null, resumeList = [];
 async function renderResume() {
@@ -156,6 +201,7 @@ async function resumeAction(e) {
   if (e.target.id === "resume-new") { resumeSel = null; const list = await api("/api/resumes"); resumeList = list; $("resume-name").value = "resume.md"; $("resume-text").value = ""; $("resume-activate").checked = !list.length; $("cfg-msg").textContent = "Blank resume: paste or type, then Save."; return; }
 }
 $("cfgbody").addEventListener("change", e => {
+  if (e.target.id === "prompt-restore" && e.target.value) { if (confirm("Restore version " + e.target.value + "? The current text is kept in the history.")) savePrompt({restore_version: +e.target.value}); else e.target.value = ""; return; }
   if (e.target.id !== "resume-file" || !e.target.files[0]) return;
   const f = e.target.files[0];
   f.text().then(text => { $("resume-text").value = text; $("resume-name").value = f.name.replace(/\.(txt|markdown)$/i, ".md"); $("cfg-msg").textContent = `Loaded ${f.name}; click Save to keep it.`; });
@@ -215,7 +261,7 @@ function collectConfig() {
 }
 async function saveConfig() {
   const msg = $("cfg-msg"), btn = $("cfg-save");
-  const body = cfgYaml && configs[cfgName].kind === "file" ? {text: $("cfg-text").value} : {data: collectConfig()};
+  const body = cfgName === "llm" ? {data: collectLlm()} : cfgYaml && configs[cfgName].kind === "file" ? {text: $("cfg-text").value} : {data: collectConfig()};
   btn.disabled = true; msg.className = "cfgmsg"; msg.textContent = "Saving…";
   try {
     const c = await api("/api/config/" + cfgName, {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
@@ -236,6 +282,11 @@ async function saveConfig() {
 $("cfgnav").addEventListener("click", e => { if (e.target.id === "cfg-wizard") return openOnboarding(); const b = e.target.closest("button[data-cfg]"); if (b) { cfgName = b.dataset.cfg; loadConfigs(); } });
 $("cfgbody").addEventListener("click", e => {
   if (e.target.id === "cfg-save") return saveConfig();
+  if (e.target.id === "llm-test") return testLlmKey();
+  if (e.target.id === "llm-clear") { if (confirm("Remove the stored key?")) api("/api/config/llm", {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({data: {provider: "local", clear_key: true}})}).then(loadConfigs); return; }
+  if (e.target.id === "prompt-save") return savePrompt({text: $("prompt-text").value});
+  if (e.target.id === "prompt-reload") return renderPrompts();
+  const pb = e.target.closest("button[data-prompt]"); if (pb) { promptSel = pb.dataset.prompt; return renderPrompts(); }
   if (e.target.id === "resume-save") return saveResume();
   if (cfgName === "resume") return resumeAction(e);
   if (e.target.id === "pw-save") return savePassword();
