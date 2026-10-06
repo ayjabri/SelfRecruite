@@ -71,11 +71,11 @@ function renderMarkdown(text) {
       while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) rows.push(cells(lines[i++]));
       out.push(`<table><thead><tr>${head.map(c => `<th>${c}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`); continue;
     }
-    if ((m = line.match(/^\s*([-*+]|\d+[.)])\s+(.*)$/))) {
+    if ((m = line.match(/^\s*([-*+•·]|\d+[.)])\s+(.*)$/))) {
       flushPara(); flushQuote(); const tag = /\d/.test(m[1]) ? "ol" : "ul";
       if (!list || list.tag !== tag) { flushList(); list = {tag, items: []}; }
       list.items.push(m[2]); i++;
-      while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !/^\s*([-*+]|\d+[.)])\s+/.test(lines[i])) list.items[list.items.length - 1] += " " + lines[i++].trim();
+      while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !/^\s*([-*+•·]|\d+[.)])\s+/.test(lines[i])) list.items[list.items.length - 1] += " " + lines[i++].trim();
       continue;
     }
     if ((m = line.match(/^\s*>\s?(.*)$/))) { flushPara(); flushList(); quote.push(m[1]); i++; continue; }

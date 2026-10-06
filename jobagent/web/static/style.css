@@ -188,7 +188,6 @@
   .skills label.chip { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
   .bottomrow { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; }
   .bottomrow .card { margin-bottom: 14px; display: flex; flex-direction: column; min-height: 420px; }
-  .bottomrow pre.posting { flex: 1; overflow: auto; max-height: 70vh; margin: 0; white-space: pre-wrap; font: inherit; }
   .resumehead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .resumehead .name { flex: 1; min-width: 140px; font-weight: 700; }
   .resumehead input { width: 100%; }

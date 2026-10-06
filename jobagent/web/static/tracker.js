@@ -150,7 +150,7 @@ function renderDetail(j) {
       `<li>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title || "posting")}</a>` : esc(p.title || "posting")}${p.location ? " · " + esc(p.location) : ""} <span class="match" style="color:var(--muted)">(${esc(p.source)})</span></li>`).join("")}</ul></div>` : ""}
     ${j.comp_text ? `<div class="card"><h3>Pay, as stated</h3>${esc(j.comp_text)}</div>` : ""}
     <div class="bottomrow">
-      <div class="card"><h3>Full posting text</h3><pre class="posting">${esc(j.description)}</pre></div>
+      <div class="card"><h3>Full posting text</h3><div class="md">${renderMarkdown(j.description)}</div></div>
       ${j.applied_resume_id ? `<div class="card" id="resume-card"><h3>Resume you applied with</h3><div class="sub">loading…</div></div>` : ""}
     </div>`;
   if (j.applied_resume_id) loadResumeCard(j.applied_resume_id);
