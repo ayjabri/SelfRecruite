@@ -55,7 +55,8 @@ def get_chat_model(model: str | None = None, user_id: int | None = None) -> Base
     """`model` is "<provider>:<model>"; else the user's own account; else LLM_MODEL."""
     s = get_settings()
     if model is None and (own := user_llm(user_id)):
-        return init_chat_model(own["model"], model_provider=own["provider"], temperature=0, api_key=own["api_key"])
+        # newer Claude models refuse a non-default temperature; leave it unset for them
+        return init_chat_model(own["model"], model_provider=own["provider"], api_key=own["api_key"], **_sampling(own["provider"]))
     spec = model or s.llm_model
     provider, _, name = spec.partition(":")
     if provider == "ollama":
@@ -63,7 +64,12 @@ def get_chat_model(model: str | None = None, user_id: int | None = None) -> Base
             name, model_provider="ollama", base_url=s.ollama_base_url,
             temperature=0, num_ctx=s.ollama_num_ctx, reasoning=False,
         )
-    return init_chat_model(name, model_provider=provider, temperature=0)
+    return init_chat_model(name, model_provider=provider, **_sampling(provider))
+
+
+def _sampling(provider: str) -> dict:
+    """temperature=0 where the provider allows it; nothing for Anthropic (Claude 5 rejects it)."""
+    return {} if provider == "anthropic" else {"temperature": 0}
 
 
 # --- Anthropic model list and key test -----------------------------------------------------
