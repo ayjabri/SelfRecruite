@@ -42,7 +42,34 @@
   nav#tabs button:hover { color: var(--text); }
   nav#tabs button.on { color: var(--accent); border-bottom-color: var(--accent); }
   nav#tabs .badge { background: var(--warn-bg); color: var(--warn); border-radius: 999px; padding: 0 7px; font-size: 11px; margin-left: 6px; }
-  header[hidden], #list[hidden], #detail[hidden], #dups[hidden], #runpanel[hidden] { display: none; }
+  header[hidden], #list[hidden], #detail[hidden], #dups[hidden], #runpanel[hidden], #settings[hidden] { display: none; }
+  #settings { flex: 1; overflow-y: auto; padding: 20px 28px 60px; }
+  .cfgnav { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .cfgnav button { cursor: pointer; }
+  .cfgnav button.on { background: var(--sel); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .cfghead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .cfghead .path { color: var(--muted); font: 12px ui-monospace, monospace; }
+  .cfghead .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .cfghead button.save { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 700; cursor: pointer; }
+  .cfghead button.save:disabled { opacity: .5; cursor: default; }
+  .field.cfg { display: grid; grid-template-columns: 220px 1fr; gap: 6px 12px; align-items: start; margin: 8px 0; }
+  .field.cfg label { font-weight: 600; padding-top: 5px; }
+  .field.cfg .help { grid-column: 2; color: var(--muted); font-size: 12px; margin-top: -2px; }
+  .field.cfg textarea { min-height: 120px; font: 13px ui-monospace, monospace; }
+  .field.cfg input[type=text] { width: 100%; }
+  .field.cfg input[type=number] { width: 110px; }
+  .nums { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+  .nums label { display: flex; gap: 6px; align-items: center; color: var(--muted); }
+  table.rows { border-collapse: collapse; width: 100%; }
+  table.rows th { text-align: left; color: var(--muted); font-size: 12px; font-weight: 600; padding: 2px 6px; }
+  table.rows td { padding: 3px 6px; vertical-align: top; }
+  table.rows input[type=text] { width: 100%; }
+  table.rows input.num { width: 70px; }
+  table.rows .del { color: var(--no); background: none; border: 0; cursor: pointer; font-size: 16px; padding: 0 4px; }
+  .addrow { margin-top: 6px; cursor: pointer; }
+  textarea.yaml { width: 100%; min-height: 60vh; font: 13px ui-monospace, monospace; }
+  .cfgmsg { font-size: 13px; min-height: 18px; }
+  .cfgmsg.err { color: var(--no); } .cfgmsg.ok { color: var(--yes); }
   @media (max-width: 800px) { #banner .brand { font-size: 22px; } #banner .logo { height: 48px; } }
   header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 16px;
            display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
@@ -166,6 +193,7 @@
   <button data-tab="jobs" class="on">Job tracker</button>
   <button data-tab="run">Run</button>
   <button data-tab="dups">Possible duplicates <span class="badge" id="dupcount">0</span></button>
+  <button data-tab="settings">Settings</button>
 </nav>
 <header id="filters">
   <input type="search" id="q" placeholder="Search title or text">
@@ -220,6 +248,12 @@
       <pre id="run-output" class="log"></pre>
     </div>
     <div class="card"><h3>Recent runs</h3><div id="run-list" class="sub">none yet</div></div>
+  </div>
+  <div id="settings" hidden>
+    <h2>Settings</h2>
+    <div class="sub">The files in <code>config/</code>. Saving keeps the comments in the file and writes a backup to <code>data/config_backups/</code>.</div>
+    <div class="cfgnav" id="cfgnav"></div>
+    <div id="cfgbody"></div>
   </div>
 </main>
 <script>
@@ -418,9 +452,10 @@ function showTab(name) {
   tab = name;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
   $("filters").hidden = name !== "jobs"; $("list").hidden = name !== "jobs"; $("detail").hidden = name !== "jobs";
-  $("dups").hidden = name !== "dups"; $("runpanel").hidden = name !== "run";
+  $("dups").hidden = name !== "dups"; $("runpanel").hidden = name !== "run"; $("settings").hidden = name !== "settings";
   try { localStorage.setItem("tab", name); } catch (e) {}
   if (name === "dups") renderDups();
+  if (name === "settings") loadConfigs();
   if (name === "run") { if (!tools.length) loadTools(); refreshRuns(); } else clearTimeout(pollTimer);
 }
 $("tabs").addEventListener("click", e => { const b = e.target.closest("button[data-tab]"); if (b) showTab(b.dataset.tab); });
@@ -440,6 +475,146 @@ $("theme").addEventListener("click", () => {
 });
 let savedTheme = null; try { savedTheme = localStorage.getItem("theme"); } catch (e) {}
 applyTheme(savedTheme);
+
+// ---- settings: form editors for the files in config/
+const CONFIG_FORMS = {
+  filters: [
+    {section: "Title keywords", help: "A posting is kept only if its title contains at least one keyword below and none of the excluded ones. Whole words, case-insensitive."},
+    {path: "title.include", type: "list", label: "Keep titles containing", help: "one phrase per line"},
+    {path: "title.exclude", type: "list", label: "Drop titles containing", help: "one phrase per line"},
+    {section: "Location"},
+    {path: "location.us_only", type: "bool", label: "US only", help: "drop postings clearly outside the US; unclear locations are kept"},
+    {path: "location.allowed_states", type: "tags", label: "Allowed states", help: "state codes, comma-separated. Remote postings and unreadable locations are kept. Empty = no state gate"},
+    {path: "location.extra_us", type: "tags", label: "Extra US place names"},
+    {path: "location.extra_non_us", type: "tags", label: "Extra non-US place names"},
+  ],
+  companies: [
+    {path: "greenhouse", type: "tags", label: "Greenhouse boards", help: "board slugs from boards.greenhouse.io/<slug>, comma-separated"},
+    {path: "workday", type: "table", label: "Workday sites", columns: ["company", "site"], help: "site = tenant:wdN:site, from https://<tenant>.<wdN>.myworkdayjobs.com/<site>"},
+    {path: "oracle", type: "table", label: "Oracle Recruiting sites", columns: ["company", "host", "site_number"], help: "from https://<host>/hcmUI/CandidateExperience/en/sites/<site_number>"},
+  ],
+  targets: [
+    {section: "Fit score", help: "rule score = 100 × (required·M + preferred·P + title_family·F + seniority·S + domain·D)"},
+    {path: "weights", type: "numbers", label: "Weights", step: 0.05},
+    {path: "similarity", type: "numbers", label: "Similarity band", step: 0.01, help: "embedding similarity at or below floor counts as 0, at or above ceiling as 1"},
+    {path: "title_families", type: "families", label: "Title families", help: "the highest weight among families whose keywords appear in the title; the family also picks the resume variant to tailor from"},
+    {path: "seniority", type: "numbers", label: "Seniority", step: 0.1},
+    {section: "Domain"},
+    {path: "domains.companies", type: "tags", label: "Domain companies", help: "full domain credit for these employers"},
+    {path: "domains.keywords", type: "tags", label: "Domain keywords", help: "otherwise 1/3 credit per distinct keyword found"},
+    {path: "bank_title_companies", type: "tags", label: "Bank-style titles", help: "employers where Vice President is mid-senior, not an executive"},
+    {section: "Hard gates", help: "a job that trips a gate is capped at 30"},
+    {path: "gates.clearance_required", type: "bool", label: "Cap clearance-required jobs"},
+    {path: "gates.phd_required", type: "bool", label: "Cap PhD-required jobs"},
+    {path: "gates.pay_floor", type: "number", label: "Pay floor", help: "cap jobs whose top of range is below this (annual). Empty = off"},
+    {path: "gates.allowed_states", type: "tags", label: "Allowed states", help: "cap non-remote jobs located elsewhere"},
+  ],
+  skills: [
+    {path: "skills", type: "maplist", label: "Skill catalogue", columns: ["skill", "phrases that mean it"], help: "phrases are matched whole-word, case-insensitive"},
+    {path: "have", type: "tags", label: "Skills you also have", help: "beyond what the resume text mentions"},
+    {path: "not_have", type: "tags", label: "Skills not to claim", help: "mentioned in the resume but you would rather not claim"},
+  ],
+};
+let configs = {}, cfgName = null, cfgYaml = false;
+const getPath = (o, p) => p.split(".").reduce((x, k) => (x == null ? undefined : x[k]), o);
+const setPath = (o, p, v) => { const ks = p.split("."); let x = o; for (const k of ks.slice(0, -1)) { if (x[k] == null || typeof x[k] !== "object") x[k] = {}; x = x[k]; } x[ks.at(-1)] = v; };
+const splitTags = s => s.split(",").map(x => x.trim()).filter(Boolean);
+const numOrNull = s => s.trim() === "" ? null : Number(s);
+
+async function loadConfigs() {
+  const list = await api("/api/config");
+  configs = Object.fromEntries(list.map(c => [c.name, c]));
+  if (!cfgName) cfgName = list[0].name;
+  $("cfgnav").innerHTML = list.map(c => `<button data-cfg="${c.name}" class="${c.name === cfgName ? "on" : ""}" title="${esc(c.description)}">${esc(c.title)} <span class="match" style="color:var(--muted)">${esc(c.path.replace("config/", ""))}</span></button>`).join("");
+  renderConfig();
+}
+function renderConfig() {
+  const c = configs[cfgName]; if (!c) return;
+  const head = `<div class="cfghead"><b>${esc(c.title)}</b><span class="path">${esc(c.path)}</span><span class="match" style="color:var(--muted)">${esc(c.description)}</span>
+    <span class="right"><label class="f"><input type="checkbox" id="cfg-yaml" ${cfgYaml ? "checked" : ""}> edit as YAML</label><button id="cfg-reload">Discard changes</button><button class="save" id="cfg-save">Save</button></span></div>
+    <div class="cfgmsg" id="cfg-msg"></div>`;
+  let body;
+  if (cfgYaml) body = `<textarea class="yaml" id="cfg-text" spellcheck="false">${esc(c.text)}</textarea>`;
+  else body = `<div class="card">${(CONFIG_FORMS[cfgName] || []).map(f => renderField(f, c.data)).join("") || '<div class="sub">No form for this file; use "edit as YAML".</div>'}</div>`;
+  $("cfgbody").innerHTML = head + body;
+}
+const tagsIn = (id, list) => `<input type="text" id="${id}" value="${esc((list || []).join(", "))}">`;
+function renderField(f, data) {
+  if (f.section) return `<h3 style="margin:16px 0 4px;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)">${esc(f.section)}</h3>${f.help ? `<div class="sub" style="font-size:12px">${esc(f.help)}</div>` : ""}`;
+  const v = getPath(data, f.path), id = "cfg-" + f.path.replace(/\./g, "-");
+  let input;
+  switch (f.type) {
+    case "bool": input = `<label class="f"><input type="checkbox" id="${id}" ${v ? "checked" : ""}> ${v ? "on" : "off"}</label>`; break;
+    case "number": input = `<input type="number" id="${id}" value="${v ?? ""}" step="any">`; break;
+    case "tags": input = tagsIn(id, v); break;
+    case "list": input = `<textarea id="${id}" spellcheck="false">${esc((v || []).join("\n"))}</textarea>`; break;
+    case "numbers": input = `<div class="nums" id="${id}">${Object.entries(v || {}).map(([k, n]) => `<label>${esc(k)} <input type="number" class="num" data-key="${esc(k)}" value="${n ?? ""}" step="${f.step || "any"}"></label>`).join("")}</div>`; break;
+    case "table": input = `<table class="rows" id="${id}" data-cols="${f.columns.join(",")}"><tr>${f.columns.map(c => `<th>${esc(c)}</th>`).join("")}<th></th></tr>
+      ${(v || []).map(row => tableRow(f.columns, row)).join("")}</table><button class="addrow" data-add="table" data-for="${id}">+ add row</button>`; break;
+    case "maplist": input = `<table class="rows" id="${id}"><tr><th>${esc(f.columns[0])}</th><th>${esc(f.columns[1])}</th><th></th></tr>
+      ${Object.entries(v || {}).map(([k, list]) => mapRow(k, list)).join("")}</table><button class="addrow" data-add="maplist" data-for="${id}">+ add skill</button>`; break;
+    case "families": input = `<table class="rows" id="${id}"><tr><th>family</th><th>weight</th><th>title keywords (comma-separated)</th><th></th></tr>
+      ${Object.entries(v || {}).map(([k, fam]) => familyRow(k, fam)).join("")}</table><button class="addrow" data-add="families" data-for="${id}">+ add family</button>`; break;
+  }
+  return `<div class="field cfg" data-path="${f.path}" data-type="${f.type}"><label for="${id}">${esc(f.label)}</label><div>${input}</div>${f.help ? `<div class="help">${esc(f.help)}</div>` : ""}</div>`;
+}
+const delBtn = '<td><button class="del" data-del title="remove">×</button></td>';
+const tableRow = (cols, row = {}) => `<tr>${cols.map(c => `<td><input type="text" data-col="${esc(c)}" value="${esc(row[c] ?? "")}"></td>`).join("")}${delBtn}</tr>`;
+const mapRow = (k = "", list = []) => `<tr><td style="width:220px"><input type="text" data-key value="${esc(k)}"></td><td><input type="text" data-list value="${esc(list.join(", "))}"></td>${delBtn}</tr>`;
+const familyRow = (k = "", fam = {}) => `<tr><td style="width:200px"><input type="text" data-key value="${esc(k)}"></td><td><input type="number" class="num" data-weight value="${fam.weight ?? 1}" step="0.05"></td><td><input type="text" data-list value="${esc((fam.keywords || []).join(", "))}"></td>${delBtn}</tr>`;
+
+function collectConfig() {
+  const data = JSON.parse(JSON.stringify(configs[cfgName].data));
+  for (const el of $("cfgbody").querySelectorAll(".field.cfg")) {
+    const p = el.dataset.path, t = el.dataset.type, box = el.querySelector("div");
+    let v;
+    if (t === "bool") v = box.querySelector("input").checked;
+    else if (t === "number") v = numOrNull(box.querySelector("input").value);
+    else if (t === "tags") v = splitTags(box.querySelector("input").value);
+    else if (t === "list") v = box.querySelector("textarea").value.split("\n").map(s => s.trim()).filter(Boolean);
+    else if (t === "numbers") { v = {}; for (const i of box.querySelectorAll("input")) v[i.dataset.key] = numOrNull(i.value); }
+    else if (t === "table") { v = []; for (const r of box.querySelectorAll("tr:has(input)")) { const row = {}; for (const i of r.querySelectorAll("input")) if (i.value.trim()) row[i.dataset.col] = i.value.trim(); if (Object.keys(row).length) v.push(row); } }
+    else if (t === "maplist") { v = {}; for (const r of box.querySelectorAll("tr:has(input)")) { const k = r.querySelector("[data-key]").value.trim(); if (k) v[k] = splitTags(r.querySelector("[data-list]").value); } }
+    else if (t === "families") { v = {}; for (const r of box.querySelectorAll("tr:has(input)")) { const k = r.querySelector("[data-key]").value.trim(); if (k) v[k] = {weight: Number(r.querySelector("[data-weight]").value || 0), keywords: splitTags(r.querySelector("[data-list]").value)}; } }
+    setPath(data, p, v);
+  }
+  return data;
+}
+async function saveConfig() {
+  const msg = $("cfg-msg"), btn = $("cfg-save");
+  const body = cfgYaml ? {text: $("cfg-text").value} : {data: collectConfig()};
+  btn.disabled = true; msg.className = "cfgmsg"; msg.textContent = "Saving…";
+  try {
+    const c = await api("/api/config/" + cfgName, {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    configs[cfgName] = c; renderConfig();
+    const m = $("cfg-msg"); m.className = "cfgmsg ok";
+    m.innerHTML = `Saved ${esc(c.path)} at ${new Date().toLocaleTimeString()}.` + (c.after ? ` ${esc(c.after.note)}: <button id="cfg-after">Run ${esc(c.after.tool)} now</button>` : "");
+    if (c.after) $("cfg-after").addEventListener("click", async () => {
+      try { const r = await api("/api/runs", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({command: "run", tool: c.after.tool, args: c.after.args})}); showTab("run"); watch(r.id); }
+      catch (e) { $("cfg-msg").className = "cfgmsg err"; $("cfg-msg").textContent = e.message; }
+    });
+    if (cfgName === "skills" && selected != null) select(selected);
+  } catch (e) {
+    msg.className = "cfgmsg err"; msg.textContent = "Not saved: " + e.message.replace(/^.*"detail":"?/, "").replace(/"?}$/, "");
+    btn.disabled = false;
+  }
+}
+$("cfgnav").addEventListener("click", e => { const b = e.target.closest("button[data-cfg]"); if (b) { cfgName = b.dataset.cfg; loadConfigs(); } });
+$("cfgbody").addEventListener("click", e => {
+  if (e.target.id === "cfg-save") return saveConfig();
+  if (e.target.id === "cfg-reload") return loadConfigs();
+  const d = e.target.closest("button[data-del]"); if (d) { d.closest("tr").remove(); return; }
+  const a = e.target.closest("button[data-add]");
+  if (a) {
+    const table = $(a.dataset.for);
+    const html = a.dataset.add === "table" ? tableRow(table.dataset.cols.split(",")) : a.dataset.add === "maplist" ? mapRow() : familyRow();
+    table.insertAdjacentHTML("beforeend", html); table.lastElementChild.querySelector("input").focus();
+  }
+});
+$("cfgbody").addEventListener("change", e => {
+  if (e.target.id === "cfg-yaml") { cfgYaml = e.target.checked; renderConfig(); }
+  if (e.target.type === "checkbox" && e.target.closest(".field.cfg")) e.target.parentElement.lastChild.textContent = " " + (e.target.checked ? "on" : "off");
+});
 
 // ---- possible duplicates
 let pairs = [];

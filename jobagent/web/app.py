@@ -19,7 +19,7 @@ from jobagent.tools.dedup import DecideDuplicateInput, decide_duplicate
 from jobagent.tools.common import NORMALIZERS
 from jobagent.tools import TOOLS
 from jobagent.tools.scoring import AnnotateJobInput, LabelJobInput, annotate_job, in_scope, label_job
-from jobagent.web import runs
+from jobagent.web import configs, runs
 
 app = FastAPI(title="jobagent review")
 INDEX = Path(__file__).with_name("index.html")
@@ -319,3 +319,37 @@ def get_run(run_id: str):
 @app.post("/api/runs/{run_id}/stop")
 def stop_run(run_id: str):
     return {"stopped": runs.stop(run_id)}
+
+
+# --- config files --------------------------------------------------------------------------
+
+@app.get("/api/config")
+def list_config():
+    return [configs.read(name) for name in configs.FILES]
+
+
+@app.get("/api/config/{name}")
+def get_config(name: str):
+    try:
+        return {**configs.read(name), "backups": configs.backups(name)}
+    except KeyError:
+        raise HTTPException(404, "no such config file")
+
+
+class ConfigBody(BaseModel):
+    text: str | None = None            # raw YAML, saved as typed
+    data: dict[str, object] | None = None   # form values, merged into the file
+
+
+@app.put("/api/config/{name}")
+def put_config(name: str, body: ConfigBody):
+    try:
+        if body.text is not None:
+            return configs.save_text(name, body.text)
+        if body.data is not None:
+            return configs.save_data(name, body.data)
+    except KeyError:
+        raise HTTPException(404, "no such config file")
+    except Exception as e:  # bad YAML or unwritable file: tell the page why
+        raise HTTPException(400, f"{type(e).__name__}: {e}")
+    raise HTTPException(400, "send text or data")
