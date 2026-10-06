@@ -11,11 +11,16 @@
     --sel: #e8f0fe; --bar: #c9d3e0; --warn: #b26a00; --warn-bg: #fff3dc;
   }
   @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]) {
       --bg: #12151a; --panel: #1a1f27; --line: #2c333f; --text: #e6e9ee; --muted: #94a0b3;
       --accent: #6ea0ff; --yes: #4cc38a; --yes-bg: #173327; --no: #f0776a; --no-bg: #3a1f1c;
       --sel: #22304a; --bar: #3a4455; --warn: #f0b354; --warn-bg: #3a2c12;
     }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12151a; --panel: #1a1f27; --line: #2c333f; --text: #e6e9ee; --muted: #94a0b3;
+    --accent: #6ea0ff; --yes: #4cc38a; --yes-bg: #173327; --no: #f0776a; --no-bg: #3a1f1c;
+    --sel: #22304a; --bar: #3a4455; --warn: #f0b354; --warn-bg: #3a2c12;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
@@ -28,8 +33,16 @@
   #banner .brand { font-size: 30px; font-weight: 800; letter-spacing: .01em; }
   #banner .brand span { font-weight: 700; color: #ffc857; }
   #banner .tagline { font-size: 13px; color: #c9c3bd; }
-  #banner button { justify-self: end; background: #f46036; color: #fff; border: 0; font-weight: 700; padding: 8px 16px; cursor: pointer; }
-  #banner button:hover { background: #ff7a50; }
+  #banner .theme { justify-self: end; background: transparent; color: #fff; border: 1px solid #444; border-radius: 999px;
+                   width: 38px; height: 38px; font-size: 18px; cursor: pointer; padding: 0; line-height: 1; }
+  #banner .theme:hover { border-color: #ffc857; color: #ffc857; }
+  nav#tabs { display: flex; gap: 2px; padding: 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  nav#tabs button { background: none; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 10px 16px;
+                    font-weight: 600; color: var(--muted); cursor: pointer; }
+  nav#tabs button:hover { color: var(--text); }
+  nav#tabs button.on { color: var(--accent); border-bottom-color: var(--accent); }
+  nav#tabs .badge { background: var(--warn-bg); color: var(--warn); border-radius: 999px; padding: 0 7px; font-size: 11px; margin-left: 6px; }
+  header[hidden], #list[hidden], #detail[hidden], #dups[hidden], #runpanel[hidden] { display: none; }
   @media (max-width: 800px) { #banner .brand { font-size: 22px; } #banner .logo { height: 48px; } }
   header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 16px;
            display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
@@ -125,6 +138,21 @@
   .pair .job .m { color: var(--muted); font-size: 12.5px; }
   .pairhead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; color: var(--muted); font-size: 12.5px; }
   .pairhead .btns button { margin-left: 6px; cursor: pointer; }
+  .skillrow { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .skillrow .card { margin-bottom: 0; }
+  .skills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .skills .chip.ok { background: var(--yes-bg); border-color: var(--yes); color: var(--yes); }
+  .skills .chip.gap { background: var(--no-bg); border-color: var(--no); color: var(--no); }
+  .skills .none { color: var(--muted); font-size: 12.5px; }
+  @media (max-width: 800px) { .skillrow { grid-template-columns: 1fr; } }
+  .dupbar { position: sticky; top: 0; z-index: 2; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+            padding: 10px 14px; margin-bottom: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .dupbar button { cursor: pointer; }
+  .dupbar .n { color: var(--muted); margin-left: auto; }
+  .card.pairc { display: grid; grid-template-columns: 24px 1fr; gap: 12px; align-items: start; }
+  .card.pairc.sel { border-color: var(--accent); background: var(--sel); }
+  .card.pairc input[type=checkbox] { width: 18px; height: 18px; margin-top: 2px; cursor: pointer; }
+  .pair .job a { color: var(--accent); font-size: 12px; }
   @media (max-width: 800px) { main { flex-direction: column; } #list { width: 100%; max-width: none; height: 40%; border-right: 0; border-bottom: 1px solid var(--line); } }
 </style>
 </head>
@@ -132,9 +160,14 @@
 <div id="banner">
   <img class="logo" src="/logo.png" alt="phoenix logo">
   <div class="brandbox"><div class="brand">Self Recruiter <span>(AI)</span></div><div class="tagline">finds, scores and tracks the roles worth your time</div></div>
-  <button id="runbtn" title="Start a pull or run any tool">▶ Run</button>
+  <button id="theme" class="theme" title="Switch light / dark mode">◐</button>
 </div>
-<header>
+<nav id="tabs">
+  <button data-tab="jobs" class="on">Job tracker</button>
+  <button data-tab="run">Run</button>
+  <button data-tab="dups">Possible duplicates <span class="badge" id="dupcount">0</span></button>
+</nav>
+<header id="filters">
   <input type="search" id="q" placeholder="Search title or text">
   <select id="company"><option value="">All companies</option></select>
   <select id="label">
@@ -159,7 +192,6 @@
   <select id="sort"><option value="score">Highest fit score</option><option value="match">Highest match score</option><option value="newest">Newest</option></select>
   <label class="f"><input type="checkbox" id="scope"> include filtered-out jobs</label>
   <div id="progress"></div>
-  <button id="dupbtn" title="Pairs that look like the same opening; decide whether they are">Possible duplicates</button>
 </header>
 <main>
   <div id="list"></div>
@@ -211,7 +243,7 @@ async function loadSummary() {
   const s = await api("/api/summary");
   const done = s.interested + s.not_interested;
   $("progress").innerHTML = `<b>${done}</b> of ${s.in_scope} marked · <b>${s.interested}</b> interested · <b>${s.not_interested}</b> not · <b>${s.favorites}</b> ♥ · <b>${s.applied}</b> applied`;
-  $("dupbtn").textContent = `Possible duplicates (${s.pending_duplicates})`;
+  $("dupcount").textContent = s.pending_duplicates;
   const sel = $("company"), cur = sel.value;
   sel.innerHTML = '<option value="">All companies</option>' + s.companies.map(c => `<option>${esc(c)}</option>`).join("");
   sel.value = cur;
@@ -269,6 +301,14 @@ function dial(score, gated) {
     <div class="big" style="color:${color}">${score}</div>
     <div class="lbl">${gated ? "capped" : "fit"}</div></div>`;
 }
+function skillBoxes(sk) {
+  const chips = (list, cls) => list.length ? list.map(s => `<span class="chip ${cls}">${esc(s)}</span>`).join("") : "";
+  const m = sk?.matching || [], g = sk?.missing || [];
+  return `<div class="skillrow">
+    <div class="card"><h3>Technical skills you have · ${m.length}</h3><div class="skills">${chips(m, "ok") || '<span class="none">None of the catalogued skills mentioned.</span>'}</div></div>
+    <div class="card"><h3>Technical skills missing · ${g.length}</h3><div class="skills">${chips(g, "gap") || '<span class="none">Nothing asked for that you lack.</span>'}</div></div>
+  </div>`;
+}
 function renderDetail(j) {
   const d = j.fit_details || {}, c = d.components || {};
   const names = {required: "Required match", preferred: "Preferred match", title_family: "Title family", seniority: "Seniority", domain: "Domain"};
@@ -305,6 +345,7 @@ function renderDetail(j) {
       <span class="match" style="color:var(--muted);margin-left:auto"><kbd>J</kbd>/<kbd>K</kbd> next / previous</span>
     </div>
     <div class="facts">${facts}${gates}</div>
+    ${skillBoxes(j.skills)}
     <div class="card"><h3>Your notes</h3><textarea id="notes" placeholder="Anything you want to remember about this job: who you spoke to, why it stands out, follow-ups…">${esc(j.notes)}</textarea><div class="saved" id="notes-saved"></div></div>
     ${j.fit_score == null ? '<div class="card">This job has no fit score (it was filtered out before scoring).</div>' : `
     <div class="fitrow">
@@ -371,32 +412,73 @@ function move(step) {
   if (n) select(n.id);
 }
 
-let showingDups = false;
-async function toggleDups() {
-  showingDups = !showingDups;
-  if (showingDups && showingRun) { showingRun = false; $("runpanel").hidden = true; clearTimeout(pollTimer); }
-  $("detail").hidden = showingDups; $("dups").hidden = !showingDups;
-  if (showingDups) renderDups();
+// ---- tabs
+let tab = "jobs";
+function showTab(name) {
+  tab = name;
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
+  $("filters").hidden = name !== "jobs"; $("list").hidden = name !== "jobs"; $("detail").hidden = name !== "jobs";
+  $("dups").hidden = name !== "dups"; $("runpanel").hidden = name !== "run";
+  try { localStorage.setItem("tab", name); } catch (e) {}
+  if (name === "dups") renderDups();
+  if (name === "run") { if (!tools.length) loadTools(); refreshRuns(); } else clearTimeout(pollTimer);
+}
+$("tabs").addEventListener("click", e => { const b = e.target.closest("button[data-tab]"); if (b) showTab(b.dataset.tab); });
+
+// ---- theme
+function applyTheme(mode) {
+  if (mode) document.documentElement.dataset.theme = mode; else delete document.documentElement.dataset.theme;
+  const dark = mode ? mode === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  $("theme").textContent = dark ? "☀" : "☾";
+  $("theme").title = dark ? "Switch to light mode" : "Switch to dark mode";
+}
+$("theme").addEventListener("click", () => {
+  const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const next = dark ? "light" : "dark";
+  try { localStorage.setItem("theme", next); } catch (e) {}
+  applyTheme(next);
+});
+let savedTheme = null; try { savedTheme = localStorage.getItem("theme"); } catch (e) {}
+applyTheme(savedTheme);
+
+// ---- possible duplicates
+let pairs = [];
+const selectedPairs = () => [...document.querySelectorAll("#dups input[data-pair]:checked")].map(c => +c.dataset.pair);
+function updateDupBar() {
+  const n = selectedPairs().length;
+  $("dup-n").textContent = `${n} of ${pairs.length} selected`;
+  $("dup-same").disabled = $("dup-diff").disabled = n === 0;
+  document.querySelectorAll("#dups .pairc").forEach(c => c.classList.toggle("sel", c.querySelector("input").checked));
 }
 async function renderDups() {
-  const pairs = await api("/api/duplicates");
-  const job = x => `<div class="job"><div class="t">${esc(x.title)}</div><div class="m">${esc(x.location || "no location")}${x.fit_score != null ? " · score " + x.fit_score : ""}${x.label ? " · " + esc(x.label.replace("_", " ")) : ""}</div></div>`;
-  $("dups").innerHTML = pairs.length ? `<h2>Possible duplicates</h2><div class="sub">Same company, similar text. "Same opening" merges the pair into one record (both postings stay linked); "Different" keeps both.</div>` +
-    pairs.map(p => `<div class="card" data-pair="${p.id}"><div class="pairhead"><span>${esc(p.company)} · similarity ${p.similarity.toFixed(3)}</span>
+  pairs = await api("/api/duplicates");
+  const job = x => `<div class="job"><div class="t">${esc(x.title)}</div><div class="m">${esc(x.location || "no location")}${x.fit_score != null ? " · score " + x.fit_score : ""}${x.label ? " · " + esc(x.label.replace("_", " ")) : ""}</div>
+    <a href="#" data-open="${x.id}">open in tracker</a></div>`;
+  $("dups").innerHTML = pairs.length ? `<h2>Possible duplicates</h2><div class="sub">Same company, similar text. "Same opening" merges the pair into one record (both postings stay linked); "Different" keeps both. Tick pairs to act on several at once.</div>
+    <div class="dupbar"><label class="f"><input type="checkbox" id="dup-all"> select all</label>
+      <button id="dup-same" class="yes" disabled>Same opening → merge selected</button><button id="dup-diff" disabled>Different → keep both</button>
+      <span class="n" id="dup-n"></span></div>` +
+    pairs.map(p => `<div class="card pairc" data-pair="${p.id}"><input type="checkbox" data-pair="${p.id}"><div>
+      <div class="pairhead"><span>${esc(p.company)} · similarity ${p.similarity.toFixed(3)}</span>
       <span class="btns"><button data-decision="same">Same opening</button><button data-decision="different">Different</button></span></div>
-      <div class="pair">${job(p.a)}${job(p.b)}</div></div>`).join("")
+      <div class="pair">${job(p.a)}${job(p.b)}</div></div></div>`).join("")
     : '<div class="empty">No pending pairs.</div>';
+  if (pairs.length) updateDupBar();
 }
-$("dupbtn").addEventListener("click", toggleDups);
+async function decidePairs(ids, decision) {
+  const r = await api("/api/duplicates/bulk", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({pair_ids: ids, decision})});
+  for (const id of r.decided) document.querySelector(`#dups .pairc[data-pair="${id}"]`)?.remove();
+  pairs = pairs.filter(p => !r.decided.includes(p.id));
+  if (!pairs.length) $("dups").innerHTML = '<div class="empty">No pending pairs.</div>'; else updateDupBar();
+  loadSummary(); if (decision === "same") loadJobs(true);
+}
+$("dups").addEventListener("change", e => {
+  if (e.target.id === "dup-all") { document.querySelectorAll("#dups input[data-pair]").forEach(c => { c.checked = e.target.checked; }); }
+  if (e.target.matches("input[type=checkbox]")) updateDupBar();
+});
 
 // ---- running jobagent from the page
-let tools = [], showingRun = false, pollTimer, currentRun = null;
-async function toggleRun() {
-  showingRun = !showingRun;
-  if (showingRun && showingDups) toggleDups();
-  $("detail").hidden = showingRun; $("runpanel").hidden = !showingRun;
-  if (showingRun) { if (!tools.length) await loadTools(); refreshRuns(); } else clearTimeout(pollTimer);
-}
+let tools = [], pollTimer, currentRun = null;
 async function loadTools() {
   tools = await api("/api/tools");
   $("run-toolname").innerHTML = tools.map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join("");
@@ -447,17 +529,18 @@ async function refreshRuns() {
   if (d.running && !currentRun) watch(d.running.id);
   $("run-list").innerHTML = d.runs.length ? d.runs.map(r => `<div class="runrow" data-run="${r.id}"><span class="${r.status}">${r.status}</span><span>${esc(r.label)}</span><span>${r.started_at.slice(0, 16).replace("T", " ")}</span></div>`).join("") : "none yet";
 }
-$("runbtn").addEventListener("click", toggleRun);
 $("run-cmd").addEventListener("change", () => { const p = $("run-cmd").value === "pipeline"; $("run-pipeline").hidden = !p; $("run-tool").hidden = p; });
 $("run-toolname").addEventListener("change", renderToolForm);
 $("run-start").addEventListener("click", startRun);
 $("run-stop").addEventListener("click", async () => { if (currentRun) await api(`/api/runs/${currentRun}/stop`, {method: "POST"}); });
 $("run-list").addEventListener("click", e => { const r = e.target.closest(".runrow"); if (r) watch(r.dataset.run); });
 $("dups").addEventListener("click", async e => {
+  const o = e.target.closest("a[data-open]");
+  if (o) { e.preventDefault(); showTab("jobs"); if (!jobs.some(j => j.id === +o.dataset.open)) { $("scope").checked = true; await loadJobs(true); } select(+o.dataset.open); return; }
+  if (e.target.id === "dup-same") return decidePairs(selectedPairs(), "same");
+  if (e.target.id === "dup-diff") return decidePairs(selectedPairs(), "different");
   const b = e.target.closest("button[data-decision]"); if (!b) return;
-  const card = b.closest(".card");
-  await api(`/api/duplicates/${card.dataset.pair}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({decision: b.dataset.decision})});
-  card.remove(); loadSummary(); if (b.dataset.decision === "same") loadJobs(true);
+  decidePairs([+b.closest(".pairc").dataset.pair], b.dataset.decision);
 });
 $("list").addEventListener("click", e => { const r = e.target.closest(".row"); if (r) select(+r.dataset.id); });
 $("detail").addEventListener("click", e => {
@@ -473,7 +556,7 @@ let timer;
 for (const id of ["q", "company", "label", "flag", "posted", "min_score", "sort", "scope"])
   $(id).addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => loadJobs(false), 250); });
 document.addEventListener("keydown", e => {
-  if (e.target.matches("input, select, textarea") || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (tab !== "jobs" || e.target.matches("input, select, textarea") || e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
   if (k === "j" || k === "arrowdown") { e.preventDefault(); move(1); }
   else if (k === "k" || k === "arrowup") { e.preventDefault(); move(-1); }
@@ -483,6 +566,8 @@ document.addEventListener("keydown", e => {
   else if (k === "f") toggle("favorite");
   else if (k === "a") toggle("applied");
 });
+let lastTab = "jobs"; try { lastTab = localStorage.getItem("tab") || "jobs"; } catch (e) {}
+if (lastTab !== "jobs") showTab(lastTab);
 loadSummary().then(() => loadJobs(false)).catch(e => { $("detail").innerHTML = `<div class="empty">Could not load jobs: ${esc(e.message)}</div>`; });
 </script>
 </body>

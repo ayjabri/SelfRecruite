@@ -14,6 +14,7 @@ from sqlalchemy import func, or_, select
 from jobagent.config import ROOT
 from jobagent.db import session
 from jobagent.models import Company, Job, JobSource, PossibleDuplicate, RawPosting
+from jobagent.skills import skill_gap
 from jobagent.tools.dedup import DecideDuplicateInput, decide_duplicate
 from jobagent.tools.common import NORMALIZERS
 from jobagent.tools import TOOLS
@@ -158,6 +159,7 @@ def get_job(job_id: int):
             "match_score": j.match_score, "match_explanation": j.match_explanation,
             "match_details": j.match_details, "scored_at": j.scored_at.date().isoformat() if j.scored_at else None,
             "sections": parsed.get("sections") or [], "description": j.description_text,
+            "skills": skill_gap(j.description_text or ""),
         }
 
 
@@ -210,6 +212,18 @@ def list_duplicates():
 
 class DecisionBody(BaseModel):
     decision: Literal["same", "different"]
+
+
+class BulkDecisionBody(DecisionBody):
+    pair_ids: list[int]
+
+
+@app.post("/api/duplicates/bulk")
+def resolve_duplicates(body: BulkDecisionBody):
+    """Apply one decision to several pairs; pairs that no longer exist are reported, not fatal."""
+    results = [decide_duplicate(DecideDuplicateInput(pair_id=i, decision=body.decision)) for i in body.pair_ids]
+    return {"decided": [r.pair_id for r in results if not r.error],
+            "errors": {r.pair_id: r.error for r in results if r.error}}
 
 
 @app.post("/api/duplicates/{pair_id}")
