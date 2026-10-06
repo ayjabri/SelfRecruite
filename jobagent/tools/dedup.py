@@ -2,10 +2,12 @@
 
 Layers, cheapest first (BUILD_PLAN step 4):
   1. same source posting            -> the raw_postings unique key, at fetch time
-  2. same company + requisition ID  -> linked at parse time
+  2. same company + requisition ID  -> linked at parse time (so the same ID never reaches 3 or 4)
   3. identical description text     -> merged here
   4. near-identical                 -> merged here when title and embedding both agree;
                                        flagged for review when only the embedding does
+Two jobs whose requisition IDs are both known and differ are different openings: never merged
+by 3 or 4 and never flagged, however alike their text.
 Merging hides nothing you could apply to: every posting stays linked to the surviving job
 with its own URL and location.
 """
@@ -18,7 +20,7 @@ from typing import Literal
 import numpy as np
 from pydantic import BaseModel, Field
 from rapidfuzz import fuzz
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from jobagent.db import session
 from jobagent.models import Job, PossibleDuplicate, UserJob
@@ -45,10 +47,15 @@ def _level_words(title_norm: str) -> frozenset[str]:
 class _Node:
     def __init__(self, row):
         self.id, self.title_norm, self.text = row.id, row.title_norm, row.description_text
+        self.req = row.requisition_id
         self.embedding = row.embedding
         self.locations = row.locations or []
         self.parsed = row.parsed
         self.in_scope = row.in_scope
+
+
+def _different_reqs(a: "_Node", b: "_Node") -> bool:
+    return bool(a.req and b.req and a.req != b.req)
 
 
 def _find(parent, x):
@@ -105,6 +112,8 @@ class DedupResult(BaseModel):
     flagged_for_review: int = 0
     pending_review: int = 0        # possible duplicates still waiting for a decision, in-scope only
     canonical_jobs: int = 0        # jobs left after merging (the ones you see)
+    kept_apart_by_req: int = 0     # look-alike pairs left alone because their requisition IDs differ
+    auto_different: int = 0        # pending pairs closed as different because their requisition IDs differ
     sample_merges: list[str] = []  # a few in-scope merges, "title A <> title B (reason)"
     dry_run: bool = False
 
@@ -114,7 +123,8 @@ class DedupResult(BaseModel):
     description=(
         "Merge duplicate job records (same opening posted several times) into one, using identical "
         "text, then title similarity plus embedding similarity, within each company. Pairs that look "
-        "alike but not alike enough are recorded as possible duplicates for the user to decide. "
+        "alike but not alike enough are recorded as possible duplicates for the user to decide; pairs "
+        "with two different requisition IDs are left alone as different openings. "
         "No LLM. Safe to rerun."
     ),
 )
@@ -125,7 +135,7 @@ def dedup_jobs(args: DedupInput) -> DedupResult:
     with session() as s, s.begin():
         rows = s.execute(
             select(Job.id, Job.company_id, Job.title_norm, Job.description_text, Job.embedding,
-                   Job.locations, Job.parsed, kept.label("in_scope"))
+                   Job.locations, Job.parsed, Job.requisition_id, kept.label("in_scope"))
             .where(Job.duplicate_of.is_(None)).order_by(Job.id)
         ).all()
         decided = {
@@ -141,12 +151,15 @@ def dedup_jobs(args: DedupInput) -> DedupResult:
         flags: list[tuple[int, int, float, int]] = []
         for nodes in by_company.values():
             # layer 3: identical text
-            by_text: dict[str, int] = {}
+            by_text: dict[str, _Node] = {}
             for n in nodes:
-                first = by_text.setdefault(n.text or f"<{n.id}>", n.id)
-                if first != n.id:
-                    parent[_find(parent, n.id)] = _find(parent, first)
-                    reasons[(first, n.id)] = "identical"
+                first = by_text.setdefault(n.text or f"<{n.id}>", n)
+                if first.id != n.id:
+                    if _different_reqs(first, n):
+                        out.kept_apart_by_req += 1
+                        continue
+                    parent[_find(parent, n.id)] = _find(parent, first.id)
+                    reasons[(first.id, n.id)] = "identical"
             # layer 4: near-identical, by embedding and title
             with_vec = [n for n in nodes if n.embedding is not None]
             if len(with_vec) < 2:
@@ -161,6 +174,9 @@ def dedup_jobs(args: DedupInput) -> DedupResult:
                         continue
                     a, b = with_vec[i], with_vec[k]
                     if _find(parent, a.id) == _find(parent, b.id):
+                        continue
+                    if _different_reqs(a, b):
+                        out.kept_apart_by_req += 1
                         continue
                     sort_ratio = fuzz.token_sort_ratio(a.title_norm, b.title_norm)
                     same_level = _level_words(a.title_norm) == _level_words(b.title_norm)
@@ -184,9 +200,19 @@ def dedup_jobs(args: DedupInput) -> DedupResult:
         out.merged_near_identical = sum(1 for v in reasons.values() if v == "near")
         out.flagged_for_review = len(flags)
         out.canonical_jobs = len(rows) - sum(len(g) - 1 for g in merges)
+        # pairs flagged earlier whose requisition IDs turn out to differ: decided, no one needs to look
+        A, B = Job.__table__.alias("a"), Job.__table__.alias("b")
+        stale = list(s.scalars(
+            select(PossibleDuplicate.id).join(A, A.c.id == PossibleDuplicate.job_a).join(B, B.c.id == PossibleDuplicate.job_b)
+            .where(PossibleDuplicate.status == "pending", A.c.requisition_id.is_not(None), B.c.requisition_id.is_not(None),
+                   A.c.requisition_id != B.c.requisition_id)))
+        out.auto_different = len(stale)
         if args.dry_run:
             s.rollback()
             return out
+        if stale:
+            s.execute(update(PossibleDuplicate).where(PossibleDuplicate.id.in_(stale))
+                      .values(status="different", decided_at=datetime.now(timezone.utc)))
         for ids in merges:
             merge_jobs(s, ids)
         merged_ids = {i for g in merges for i in g[1:]}

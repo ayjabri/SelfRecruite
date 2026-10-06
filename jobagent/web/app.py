@@ -408,7 +408,8 @@ def list_duplicates():
         rows = s.execute(
             select(PossibleDuplicate.id, PossibleDuplicate.similarity, Company.name,
                    A.c.id, A.c.title, A.c.locations, UA.c.fit_score, UA.c.user_label,
-                   B.c.id, B.c.title, B.c.locations, UB.c.fit_score, UB.c.user_label)
+                   B.c.id, B.c.title, B.c.locations, UB.c.fit_score, UB.c.user_label,
+                   A.c.requisition_id, B.c.requisition_id)
             .join(A, A.c.id == PossibleDuplicate.job_a).join(B, B.c.id == PossibleDuplicate.job_b)
             .join(Company, Company.id == A.c.company_id)
             .outerjoin(UA, (UA.c.job_id == A.c.id) & (UA.c.user_id == uid))
@@ -419,8 +420,8 @@ def list_duplicates():
         ).all()
         return [{
             "id": r[0], "similarity": float(r[1]), "company": r[2],
-            "a": {"id": r[3], "title": r[4], "location": _location_text(r[5]), "fit_score": r[6], "label": r[7]},
-            "b": {"id": r[8], "title": r[9], "location": _location_text(r[10]), "fit_score": r[11], "label": r[12]},
+            "a": {"id": r[3], "title": r[4], "location": _location_text(r[5]), "fit_score": r[6], "label": r[7], "req": r[13]},
+            "b": {"id": r[8], "title": r[9], "location": _location_text(r[10]), "fit_score": r[11], "label": r[12], "req": r[14]},
         } for r in rows]
 
 

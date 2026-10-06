@@ -191,7 +191,7 @@ function updateDupBar() {
 }
 async function renderDups() {
   pairs = await api("/api/duplicates");
-  const job = x => `<div class="job"><div class="t">${esc(x.title)}</div><div class="m">${esc(x.location || "no location")}${x.fit_score != null ? " · score " + x.fit_score : ""}${x.label ? " · " + esc(x.label.replace("_", " ")) : ""}</div>
+  const job = x => `<div class="job"><div class="t">${esc(x.title)}${x.req ? ` <span class="req">Req ${esc(x.req)}</span>` : ""}</div><div class="m">${esc(x.location || "no location")}${x.fit_score != null ? " · score " + x.fit_score : ""}${x.label ? " · " + esc(x.label.replace("_", " ")) : ""}</div>
     <a href="#" data-open="${x.id}">open in tracker</a></div>`;
   $("dups").innerHTML = pairs.length ? `<h2>Possible duplicates</h2><div class="sub">Same company, similar text. "Same opening" merges the pair into one record (both postings stay linked); "Different" keeps both. Tick pairs to act on several at once.</div>
     <div class="dupbar"><label class="f"><input type="checkbox" id="dup-all"> select all</label>
