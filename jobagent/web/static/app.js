@@ -11,6 +11,18 @@ async function api(path, opts) {
 }
 const isAdmin = () => me && me.role === "admin";
 
+// copy text to the clipboard; the async API needs HTTPS or localhost, so fall back to the old way
+async function copyText(text) {
+  try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; } } catch (e) {}
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.left = "-9999px";
+  document.body.appendChild(ta); ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+  ta.remove();
+  return ok;
+}
+
 // ---- tabs
 let tab = "jobs";
 function showTab(name) {

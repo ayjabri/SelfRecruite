@@ -294,7 +294,17 @@ async function extractKeywords() {
 }
 $("detail").addEventListener("click", e => {
   if (e.target.id === "kw-extract") return extractKeywords();
-  if (e.target.id === "kw-copy") { e.preventDefault(); api(`/api/jobs/${selected}/keywords`).then(kw => navigator.clipboard.writeText(kw.keywords.map(k => k.term).join(", ")).then(() => { e.target.textContent = "copied"; })); }
+  if (e.target.id === "kw-copy") {
+    e.preventDefault(); const link = e.target;
+    api(`/api/jobs/${selected}/keywords`).then(async kw => {
+      const text = kw.keywords.map(k => k.term).join(", ");
+      if (await copyText(text)) { link.textContent = "copied"; return; }
+      // copying is blocked here: show the list so it can be selected by hand
+      let box = $("kw-copybox");
+      if (!box) { box = document.createElement("textarea"); box.id = "kw-copybox"; box.readOnly = true; box.style.cssText = "width:100%;min-height:70px;margin-top:6px;font:inherit"; link.parentElement.after(box); }
+      box.value = text; box.focus(); box.select(); link.textContent = "select and copy from the box below";
+    });
+  }
 });
 
 // ---- the resume used for an application, shown beside the full posting text and editable in place
