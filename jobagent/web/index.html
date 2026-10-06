@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Job review</title>
+<title>Self Recruiter (AI)</title>
 <style>
   :root {
     --bg: #f6f7f9; --panel: #ffffff; --line: #dfe3e8; --text: #1c2330; --muted: #667085;
@@ -21,6 +21,16 @@
   html, body { height: 100%; margin: 0; }
   body { background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
          display: flex; flex-direction: column; }
+  #banner { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 14px; padding: 8px 18px;
+            background: #000; color: #fff; }
+  #banner .logo { height: 72px; width: auto; justify-self: start; filter: drop-shadow(0 0 10px rgba(255,140,40,.55)); }
+  #banner .brandbox { text-align: center; }
+  #banner .brand { font-size: 30px; font-weight: 800; letter-spacing: .01em; }
+  #banner .brand span { font-weight: 700; color: #ffc857; }
+  #banner .tagline { font-size: 13px; color: #c9c3bd; }
+  #banner button { justify-self: end; background: #f46036; color: #fff; border: 0; font-weight: 700; padding: 8px 16px; cursor: pointer; }
+  #banner button:hover { background: #ff7a50; }
+  @media (max-width: 800px) { #banner .brand { font-size: 22px; } #banner .logo { height: 48px; } }
   header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 16px;
            display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
   header h1 { font-size: 15px; margin: 0 6px 0 0; }
@@ -88,6 +98,16 @@
   .dial .big { font-size: 26px; font-weight: 700; line-height: 1; margin-top: -30px; font-variant-numeric: tabular-nums; }
   .dial .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-top: 4px; }
   @media (max-width: 800px) { .fitrow { grid-template-columns: 1fr; } }
+  #runpanel { flex: 1; overflow-y: auto; padding: 20px 28px 60px; }
+  .runform { display: flex; flex-direction: column; gap: 10px; }
+  .runform label.f { display: grid; grid-template-columns: 90px 1fr; gap: 10px; }
+  .runform textarea { min-height: 54px; }
+  .runform .field { display: grid; grid-template-columns: 180px 1fr; gap: 10px; align-items: center; margin: 6px 0; }
+  .runform .field .d { color: var(--muted); font-size: 12px; grid-column: 2; margin-top: -4px; }
+  pre.log { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; max-height: 420px; overflow: auto; font: 12px ui-monospace, monospace; margin: 0; }
+  .runrow { display: grid; grid-template-columns: 70px 1fr 140px; gap: 10px; padding: 5px 0; border-top: 1px solid var(--line); cursor: pointer; }
+  .runrow:first-child { border-top: 0; }
+  .runrow .ok { color: var(--yes); } .runrow .failed { color: var(--no); } .runrow .running { color: var(--warn); }
   .empty { color: var(--muted); padding: 40px; text-align: center; }
   #dups { flex: 1; overflow-y: auto; padding: 20px 28px 60px; }
   .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
@@ -100,8 +120,12 @@
 </style>
 </head>
 <body>
+<div id="banner">
+  <img class="logo" src="/logo.png" alt="phoenix logo">
+  <div class="brandbox"><div class="brand">Self Recruiter <span>(AI)</span></div><div class="tagline">finds, scores and tracks the roles worth your time</div></div>
+  <button id="runbtn" title="Start a pull or run any tool">▶ Run</button>
+</div>
 <header>
-  <h1>Job review</h1>
   <input type="search" id="q" placeholder="Search title or text">
   <select id="company"><option value="">All companies</option></select>
   <select id="label">
@@ -132,6 +156,30 @@
   <div id="list"></div>
   <div id="detail"><div class="empty">Select a job on the left.</div></div>
   <div id="dups" hidden></div>
+  <div id="runpanel" hidden>
+    <h2>Run jobagent</h2>
+    <div class="card">
+      <div class="runform">
+        <label class="f">Command
+          <select id="run-cmd"><option value="pipeline">pipeline (orchestrator: pull + all stages)</option><option value="run">run a single tool</option></select>
+        </label>
+        <div id="run-pipeline">
+          <label class="f" style="align-items:flex-start">Request<textarea id="run-request" rows="2">Pull at most 100 new postings per target from every configured source, posted in the last 24 hours.</textarea></label>
+        </div>
+        <div id="run-tool" hidden>
+          <label class="f">Tool <select id="run-toolname"></select></label>
+          <div id="run-tooldesc" class="sub"></div>
+          <div id="run-fields"></div>
+        </div>
+        <div class="actions"><button id="run-start" class="yes on">Start</button><span id="run-msg" class="sub"></span></div>
+      </div>
+    </div>
+    <div class="card" id="run-current" hidden>
+      <div class="pairhead"><span id="run-title"></span><span class="btns"><button id="run-stop">Stop</button></span></div>
+      <pre id="run-output" class="log"></pre>
+    </div>
+    <div class="card"><h3>Recent runs</h3><div id="run-list" class="sub">none yet</div></div>
+  </div>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -309,6 +357,7 @@ function move(step) {
 let showingDups = false;
 async function toggleDups() {
   showingDups = !showingDups;
+  if (showingDups && showingRun) { showingRun = false; $("runpanel").hidden = true; clearTimeout(pollTimer); }
   $("detail").hidden = showingDups; $("dups").hidden = !showingDups;
   if (showingDups) renderDups();
 }
@@ -322,6 +371,71 @@ async function renderDups() {
     : '<div class="empty">No pending pairs.</div>';
 }
 $("dupbtn").addEventListener("click", toggleDups);
+
+// ---- running jobagent from the page
+let tools = [], showingRun = false, pollTimer, currentRun = null;
+async function toggleRun() {
+  showingRun = !showingRun;
+  if (showingRun && showingDups) toggleDups();
+  $("detail").hidden = showingRun; $("runpanel").hidden = !showingRun;
+  if (showingRun) { if (!tools.length) await loadTools(); refreshRuns(); } else clearTimeout(pollTimer);
+}
+async function loadTools() {
+  tools = await api("/api/tools");
+  $("run-toolname").innerHTML = tools.map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join("");
+  renderToolForm();
+}
+function renderToolForm() {
+  const t = tools.find(x => x.name === $("run-toolname").value); if (!t) return;
+  $("run-tooldesc").textContent = t.description;
+  $("run-fields").innerHTML = t.fields.map(f => {
+    const id = "arg-" + f.name, label = `<label for="${id}">${esc(f.name)}${f.required ? " *" : ""}</label>`;
+    let input;
+    if (f.type === "bool") input = `<select id="${id}" data-arg="${esc(f.name)}" data-type="bool"><option value="">default${f.default != null ? " (" + f.default + ")" : ""}</option><option value="true">true</option><option value="false">false</option></select>`;
+    else if (f.type.startsWith("choice:")) input = `<select id="${id}" data-arg="${esc(f.name)}"><option value="">default${f.default != null ? " (" + esc(f.default) + ")" : ""}</option>${f.type.slice(7).split(",").map(c => `<option>${esc(c)}</option>`).join("")}</select>`;
+    else input = `<input id="${id}" data-arg="${esc(f.name)}" data-type="${f.type}" type="${f.type === "number" ? "number" : "text"}" placeholder="${f.default != null ? "default: " + esc(f.default) : (f.required ? "required" : "optional")}">`;
+    return `<div class="field">${label}${input}<div class="d">${esc(f.description)}</div></div>`;
+  }).join("") || '<div class="sub">This tool takes no arguments.</div>';
+}
+function toolArgs() {
+  const args = {};
+  for (const el of $("run-fields").querySelectorAll("[data-arg]")) {
+    const v = el.value; if (v === "") continue;
+    args[el.dataset.arg] = el.dataset.type === "bool" ? v === "true" : el.dataset.type === "number" ? Number(v) : v;
+  }
+  return args;
+}
+async function startRun() {
+  const cmd = $("run-cmd").value;
+  const body = cmd === "pipeline" ? {command: "pipeline", request: $("run-request").value} : {command: "run", tool: $("run-toolname").value, args: toolArgs()};
+  $("run-msg").textContent = "";
+  try { const r = await api("/api/runs", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)}); watch(r.id); }
+  catch (e) { $("run-msg").textContent = e.message.replace(/^.*"detail":"?/, "").replace(/"?}$/, ""); }
+}
+function watch(id) { currentRun = id; $("run-current").hidden = false; poll(); }
+async function poll() {
+  clearTimeout(pollTimer);
+  if (!currentRun) return;
+  const r = await api("/api/runs/" + currentRun);
+  $("run-title").textContent = `${r.label} — ${r.status}${r.elapsed_s != null ? " · " + r.elapsed_s + "s" : ""}${r.exit_code != null ? " · exit " + r.exit_code : ""}`;
+  const out = $("run-output"), atBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
+  out.textContent = r.output || "(no output yet)";
+  if (atBottom) out.scrollTop = out.scrollHeight;
+  $("run-stop").hidden = r.status !== "running";
+  if (r.status === "running") pollTimer = setTimeout(poll, 2000);
+  else { refreshRuns(); loadSummary(); loadJobs(true); }
+}
+async function refreshRuns() {
+  const d = await api("/api/runs");
+  if (d.running && !currentRun) watch(d.running.id);
+  $("run-list").innerHTML = d.runs.length ? d.runs.map(r => `<div class="runrow" data-run="${r.id}"><span class="${r.status}">${r.status}</span><span>${esc(r.label)}</span><span>${r.started_at.slice(0, 16).replace("T", " ")}</span></div>`).join("") : "none yet";
+}
+$("runbtn").addEventListener("click", toggleRun);
+$("run-cmd").addEventListener("change", () => { const p = $("run-cmd").value === "pipeline"; $("run-pipeline").hidden = !p; $("run-tool").hidden = p; });
+$("run-toolname").addEventListener("change", renderToolForm);
+$("run-start").addEventListener("click", startRun);
+$("run-stop").addEventListener("click", async () => { if (currentRun) await api(`/api/runs/${currentRun}/stop`, {method: "POST"}); });
+$("run-list").addEventListener("click", e => { const r = e.target.closest(".runrow"); if (r) watch(r.dataset.run); });
 $("dups").addEventListener("click", async e => {
   const b = e.target.closest("button[data-decision]"); if (!b) return;
   const card = b.closest(".card");

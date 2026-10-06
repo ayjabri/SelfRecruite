@@ -1,18 +1,24 @@
 """Local review UI: browse scored jobs and mark the ones you are interested in."""
+import io
+import json
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 
+from jobagent.config import ROOT
 from jobagent.db import session
 from jobagent.models import Company, Job, JobSource, PossibleDuplicate, RawPosting
 from jobagent.tools.dedup import DecideDuplicateInput, decide_duplicate
 from jobagent.tools.common import NORMALIZERS
+from jobagent.tools import TOOLS
 from jobagent.tools.scoring import AnnotateJobInput, LabelJobInput, annotate_job, in_scope, label_job
+from jobagent.web import runs
 
 app = FastAPI(title="jobagent review")
 INDEX = Path(__file__).with_name("index.html")
@@ -21,6 +27,31 @@ INDEX = Path(__file__).with_name("index.html")
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return INDEX.read_text()
+
+
+LOGO_SOURCE = ROOT / "docs" / "icon.png"
+
+
+@lru_cache
+def _logo_bytes() -> bytes:
+    """docs/icon.png is mostly black border; crop to the bird and shrink it, once."""
+    from PIL import Image, ImageChops
+    im = Image.open(LOGO_SOURCE).convert("RGBA")
+    rgb = im.convert("RGB")
+    bbox = ImageChops.difference(rgb, Image.new("RGB", rgb.size, (0, 0, 0))).point(lambda v: 255 if v > 24 else 0).getbbox()
+    crop = im.crop(bbox) if bbox else im
+    height = 160
+    crop = crop.resize((round(crop.width * height / crop.height), height), Image.LANCZOS)
+    buf = io.BytesIO()
+    crop.save(buf, "PNG", optimize=True)
+    return buf.getvalue()
+
+
+@app.get("/logo.png")
+def logo():
+    if not LOGO_SOURCE.exists():
+        raise HTTPException(404, "docs/icon.png not found")
+    return Response(_logo_bytes(), media_type="image/png")
 
 
 def _location_text(locations) -> str:
@@ -198,3 +229,71 @@ def summary():
             "not_interested": counts.get("not_interested", 0), "companies": companies,
             "pending_duplicates": pending, "favorites": favorites, "applied": applied,
         }
+
+
+# --- running jobagent commands from the page -------------------------------------------------
+
+@app.get("/api/tools")
+def list_tools():
+    """Registered tools with their input schema, so the page can build a form for each."""
+    return [{
+        "name": spec.name, "description": spec.description,
+        "fields": [{
+            "name": name, "description": field.description or "",
+            "type": _field_type(field.annotation), "default": field.default if field.default is not None else None,
+            "required": field.is_required(),
+        } for name, field in spec.input_model.model_fields.items()],
+    } for spec in TOOLS.values()]
+
+
+def _field_type(annotation) -> str:
+    text = str(annotation)
+    if "bool" in text:
+        return "bool"
+    if "int" in text or "float" in text:
+        return "number"
+    if "Literal" in text:
+        return "choice:" + ",".join(str(a) for a in getattr(annotation, "__args__", ()))
+    return "text"
+
+
+class RunBody(BaseModel):
+    command: Literal["pipeline", "run"]
+    request: str | None = None            # pipeline: the orchestrator's instruction
+    tool: str | None = None               # run: the tool name
+    args: dict[str, object] = {}          # run: its arguments
+
+
+@app.post("/api/runs")
+def start_run(body: RunBody):
+    if body.command == "pipeline":
+        argv = ["pipeline", body.request or "Daily pull of all configured targets."]
+        label = f"pipeline: {argv[1][:80]}"
+    else:
+        if body.tool not in TOOLS:
+            raise HTTPException(400, "unknown tool")
+        clean = {k: v for k, v in body.args.items() if v not in (None, "", [])}
+        argv = ["run", body.tool, "--json", json.dumps(clean)]
+        label = f"{body.tool} {json.dumps(clean)}"[:120]
+    try:
+        return runs.start(argv, label)
+    except RuntimeError as e:
+        raise HTTPException(409, str(e)) from e
+
+
+@app.get("/api/runs")
+def list_runs():
+    return {"running": (r := runs.running()) and {k: v for k, v in r.items() if k != "proc"}, "runs": runs.load_runs()}
+
+
+@app.get("/api/runs/{run_id}")
+def get_run(run_id: str):
+    run = runs.get(run_id)
+    if run is None:
+        raise HTTPException(404, "no such run")
+    return run
+
+
+@app.post("/api/runs/{run_id}/stop")
+def stop_run(run_id: str):
+    return {"stopped": runs.stop(run_id)}

@@ -25,6 +25,7 @@ dependencies = [
     "rapidfuzz",
     "fastapi",
     "uvicorn",
+    "pillow",
 ]
 
 [project.optional-dependencies]
