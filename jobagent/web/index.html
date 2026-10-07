@@ -50,10 +50,11 @@
   <div id="dups" hidden></div>
   <div id="runpanel" hidden>
     <h2>Run jobagent</h2>
+    <div class="card" id="pref-card"><h3>Learning from your marks</h3><div id="pref-body" class="sub">Loading…</div></div>
     <div class="card">
       <div class="runform">
         <label class="f">Command
-          <select id="run-cmd"><option value="score">score my jobs (scope, fast score, judgement)</option><option value="pipeline">pipeline (orchestrator: pull + all stages, then score for every user)</option><option value="run">run a single tool</option></select>
+          <select id="run-cmd"><option value="score">score my jobs (learn from new marks, scope, fast score)</option><option value="pipeline">pipeline (orchestrator: pull + all stages, then score for every user)</option><option value="run">run a single tool</option></select>
         </label>
         <div id="run-pipeline">
           <label class="f" style="align-items:flex-start">Request<textarea id="run-request" rows="2">Pull at most 100 new postings per target from every configured source, posted in the last 24 hours.</textarea></label>

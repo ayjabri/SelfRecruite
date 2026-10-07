@@ -67,7 +67,7 @@ def make_user_stages_node():
 
 
 def run_user_stages(user_id: int, request: str = "") -> list[dict]:
-    """The per-user stages alone (scope, fast score, judgement), no orchestrator: what a user
+    """The per-user stages alone (learn from new marks, scope, fast score), no orchestrator: what a user
     triggers from the page after changing their profile or resume."""
     return make_user_stages_node()({"user_id": user_id, "request": request})["reports"]
 

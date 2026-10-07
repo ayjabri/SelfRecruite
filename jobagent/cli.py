@@ -5,7 +5,7 @@
   jobagent agents                        show the registered agents
   jobagent pipeline "<request>"          run the orchestrator graph
   jobagent pipeline --resume <thread>    continue a run that stopped part-way
-  jobagent score [--user N]              the per-user stages only (scope, fast score, judgement)
+  jobagent score [--user N]              the per-user stages only (learn from new marks, scope, fast score)
   jobagent secret-key                    print a new SECRET_KEY for .env
   jobagent users                         list accounts
   jobagent passwd --user N [--email E]   set a user's password (prompts), e.g. to claim the admin account
@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     pipe = sub.add_parser("pipeline", help="run the orchestrator graph")
     pipe.add_argument("request", nargs="?", default="Daily pull of all configured targets.")
     pipe.add_argument("--resume", metavar="THREAD", help="thread id of a run to continue")
-    score = sub.add_parser("score", help="run the per-user stages (scope, fast score, judgement) with no orchestrator")
+    score = sub.add_parser("score", help="run the per-user stages (learn from new marks, scope, fast score) with no orchestrator")
     score.add_argument("--user", type=int, default=None, help="user id (default: DEFAULT_USER_ID)")
     sub.add_parser("secret-key", help="print a new SECRET_KEY for .env")
     sub.add_parser("users", help="list accounts")

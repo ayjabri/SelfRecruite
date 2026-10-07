@@ -609,7 +609,7 @@ def _field_type(annotation) -> str:
 
 
 class RunBody(BaseModel):
-    command: Literal["pipeline", "run", "score"]
+    command: Literal["pipeline", "run", "score", "train"]
     request: str | None = None            # pipeline: the orchestrator's instruction
     tool: str | None = None               # run: the tool name
     args: dict[str, object] = {}          # run: its arguments
@@ -617,14 +617,17 @@ class RunBody(BaseModel):
 
 @app.post("/api/runs")
 def start_run(body: RunBody):
-    if body.command != "score":
+    if body.command not in ("score", "train"):
         require_admin()  # the crawl and raw tools touch everyone's data
     if body.command == "pipeline":
         argv = ["pipeline", body.request or "Daily pull of all configured targets."]
         label = f"pipeline: {argv[1][:80]}"
     elif body.command == "score":
         argv = ["score", "--user", str(current_user())]
-        label = "score my jobs (scope, fast score, judgement)"
+        label = "score my jobs (learn from new marks, scope, fast score)"
+    elif body.command == "train":
+        argv = ["run", "train_preference_model", "--json", json.dumps({"user_id": current_user()})]
+        label = "retrain my preference model and re-score"
     else:
         if body.tool not in TOOLS:
             raise HTTPException(400, "unknown tool")
@@ -634,6 +637,13 @@ def start_run(body: RunBody):
         argv = ["run", body.tool, "--json", json.dumps(clean)]
         label = f"{body.tool} {json.dumps({k: v for k, v in clean.items() if k != 'user_id'})}"[:120]
     return runs.start(argv, label, current_user())
+
+
+@app.get("/api/preference")
+def preference():
+    """The current user's preference model: usable marks, last training, whether it is out of date."""
+    from jobagent.tools.preference import preference_status
+    return preference_status(current_user())
 
 
 @app.get("/api/runs")

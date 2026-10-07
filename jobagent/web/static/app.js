@@ -34,7 +34,7 @@ function showTab(name) {
   if (name === "dups") renderDups();
   if (name === "settings") loadConfigs();
   if (name === "admin") renderAdmin();
-  if (name === "run") { if (!tools.length && isAdmin()) loadTools(); refreshRuns(); } else clearTimeout(pollTimer);
+  if (name === "run") { if (!tools.length && isAdmin()) loadTools(); refreshRuns(); loadPref(); } else clearTimeout(pollTimer);
 }
 $("tabs").addEventListener("click", e => { const b = e.target.closest("button[data-tab]"); if (b) showTab(b.dataset.tab); });
 

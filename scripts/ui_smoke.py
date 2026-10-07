@@ -55,6 +55,16 @@ def main() -> int:
             for name in ("scope", "targets", "skills", "llm", "resume", "account"):
                 page.click(f'#cfgnav button[data-cfg="{name}"]'); page.wait_for_timeout(700)
             print("ok  settings pages:", page.locator("#cfgnav").inner_text()[:80].replace("\n", " "))
+            page.click('button[data-tab="run"]'); page.wait_for_selector("#pref-train", timeout=10000)
+            print("ok  preference card:", page.locator("#pref-body").inner_text()[:90].replace("\n", " "))
+            page.click("#pref-train")   # a member may retrain their own model
+            for _ in range(120):   # the page's CSP forbids eval, so poll from here instead of wait_for_function
+                if "AUC" in page.locator("#pref-body").inner_text():
+                    break
+                page.wait_for_timeout(1000)
+            else:
+                errors.append("the preference model did not finish training in 2 minutes")
+            print("ok  trained:", page.locator("#pref-body").inner_text()[:160].replace("\n", " "))
         finally:
             ctx.request.post(BASE + "/api/auth/delete", data=json.dumps({"password": PW}),
                              headers={"Content-Type": "application/json", "X-CSRF-Token": page.evaluate("me && me.csrf") or ""})

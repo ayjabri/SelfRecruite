@@ -1,4 +1,5 @@
 """Preference model: learns from the jobs a user marked which jobs they are likely to want."""
+import hashlib
 import io
 import logging
 from datetime import datetime, timezone
@@ -87,6 +88,24 @@ def cross_validated_auc(examples: list[Example], labels: list[int], repeats: int
     return float(np.mean(aucs)), float(np.std(aucs))
 
 
+def _marked_rows(uid: int) -> list:
+    """The user's marked jobs the model can learn from: scored, embedded and not merged away."""
+    with session() as s:
+        return s.execute(
+            select(Job.id, Job.title, Company.name, Job.seniority, UserJob.fit_details, Job.embedding, UserJob.user_label)
+            .join(UserJob, (UserJob.job_id == Job.id) & (UserJob.user_id == uid))
+            .join(Company, Company.id == Job.company_id)
+            .where(UserJob.user_label.is_not(None), UserJob.fit_details.is_not(None), Job.embedding.is_not(None),
+                   Job.duplicate_of.is_(None))
+        ).all()
+
+
+def marks_fingerprint(rows) -> str:
+    """Changes whenever a mark is added, removed or flipped: tells whether the model is out of date."""
+    marks = sorted(f"{r.id}:{r.user_label}" for r in rows)
+    return hashlib.sha256(",".join(marks).encode()).hexdigest()[:16]
+
+
 @lru_cache(maxsize=64)
 def _load(user_id: int, trained_at: str) -> PreferenceModel:
     with session() as s:
@@ -131,14 +150,7 @@ class TrainResult(BaseModel):
 def train_preference_model(args: TrainInput) -> TrainResult:
     uid = resolve_user(args.user_id)
     out = TrainResult()
-    with session() as s:
-        rows = s.execute(
-            select(Job.title, Company.name, Job.seniority, UserJob.fit_details, Job.embedding, UserJob.user_label)
-            .join(UserJob, (UserJob.job_id == Job.id) & (UserJob.user_id == uid))
-            .join(Company, Company.id == Job.company_id)
-            .where(UserJob.user_label.is_not(None), UserJob.fit_details.is_not(None), Job.embedding.is_not(None),
-                   Job.duplicate_of.is_(None))
-        ).all()
+    rows = _marked_rows(uid)
     labels = [int(r.user_label == "interested") for r in rows]
     out.interested, out.not_interested = sum(labels), len(labels) - sum(labels)
     if min(out.interested, out.not_interested) < MIN_PER_CLASS:
@@ -155,6 +167,7 @@ def train_preference_model(args: TrainInput) -> TrainResult:
     model.meta = {
         "trained_at": now.isoformat(), "labels": len(labels),
         "interested": out.interested, "cv_auc": out.model_auc, "rule_score_auc": out.rule_score_auc,
+        "marks_fingerprint": marks_fingerprint(rows),
     }
     buf = io.BytesIO()
     joblib.dump(model, buf)
@@ -169,4 +182,47 @@ def train_preference_model(args: TrainInput) -> TrainResult:
         from jobagent.tools.scoring import ScoreJobsInput, score_jobs_fast
         scored = score_jobs_fast(ScoreJobsInput(user_id=uid, rescore=True))
         out.rescored, out.error = scored.scored, scored.error
+    return out
+
+
+def preference_status(user_id: int | None = None) -> dict:
+    """Where the user's model stands: marks usable for training, the last training, whether it is out of date."""
+    uid = resolve_user(user_id)
+    rows = _marked_rows(uid)
+    interested = sum(r.user_label == "interested" for r in rows)
+    with session() as s:
+        row = s.execute(select(PreferenceModelRow.trained_at, PreferenceModelRow.meta)
+                        .where(PreferenceModelRow.user_id == uid)).first()
+    meta = (row.meta if row else None) or {}
+    return {
+        "interested": interested, "not_interested": len(rows) - interested, "min_per_class": MIN_PER_CLASS,
+        "can_train": min(interested, len(rows) - interested) >= MIN_PER_CLASS,
+        "trained_at": row.trained_at.isoformat(timespec="seconds") if row else None,
+        "labels_at_training": meta.get("labels"), "cv_auc": meta.get("cv_auc"), "rule_score_auc": meta.get("rule_score_auc"),
+        "out_of_date": row is not None and meta.get("marks_fingerprint") != marks_fingerprint(rows),
+    }
+
+
+class RefreshResult(TrainResult):
+    skipped: str | None = None   # why no training was needed or possible; not an error
+
+
+@tool_spec(
+    name="refresh_preference_model",
+    description=(
+        "Retrain the user's preference model if their marks changed since it was last trained (a mark added, "
+        "removed or flipped) and they have enough marks each way; then re-score their jobs with it. Does "
+        "nothing otherwise. Runs before the fast score in every scoring run, so marking jobs is enough."
+    ),
+)
+def refresh_preference_model(args: TrainInput) -> RefreshResult:
+    status = preference_status(args.user_id)
+    out = RefreshResult(interested=status["interested"], not_interested=status["not_interested"])
+    if not status["can_train"]:
+        out.skipped = (f"need at least {MIN_PER_CLASS} jobs marked each way; have {status['interested']} "
+                       f"interested, {status['not_interested']} not")
+    elif status["trained_at"] and not status["out_of_date"]:
+        out.skipped = "no marks changed since the last training"
+    else:
+        return RefreshResult(**train_preference_model(args).model_dump())
     return out
