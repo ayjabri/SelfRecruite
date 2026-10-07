@@ -35,6 +35,7 @@ Add under `workday:` as `- {company: <name>, site: "<site key>"}`.
 | PNC | `pnc:wd5:External` | 2,000 |
 | Santander US | `santander:wd3:SantanderCareers` | 929 |
 | Mizuho (Americas) | `mizuho:wd1:mizuhoamericas` | 118 |
+| MUFG (Americas) | `mufgub:wd3:MUFG-Careers` | 685 (checked Oct 7, 2026) |
 | TD Bank | `td:wd3:TD_Bank_Careers` | 1,517 |
 | Truist | `truist:wd1:Careers` | 1,110 |
 | U.S. Bank | `usbank:wd1:US_Bank_Careers` | 1,185 |

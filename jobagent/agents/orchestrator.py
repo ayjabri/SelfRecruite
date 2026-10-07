@@ -1,5 +1,6 @@
 """The orchestrator: decides which source agents run and whether the stages follow."""
 import json
+import re
 
 import yaml
 from langgraph.types import Send
@@ -38,6 +39,29 @@ def _targets() -> dict[str, list[str]]:
     return {a.name: list((data or {}).get(a.config_key) or []) for a in sources()}
 
 
+def _norm(s: str) -> str:
+    return " " + re.sub(r"[^a-z0-9]+", " ", s.lower().replace(".", "")).strip() + " "
+
+
+def _target_name(t) -> str:
+    return t.get("company") or "" if isinstance(t, dict) else str(t)
+
+
+def attach_targets(task: str, targets: list) -> str:
+    """Append the configured targets to a source agent's task, so it never depends on the planner copying
+    site keys: the ones the task names ("US Bank" finds "U.S. Bank"), or all of them when it names none."""
+    if not targets:
+        return task
+    text = _norm(task)
+    named = [t for t in targets if _target_name(t) and _norm(_target_name(t)) in text]
+    if named:
+        head = "Targets for this task (copy these arguments exactly):"
+    else:
+        named, head = targets, ("Configured targets (copy these arguments exactly; use the ones the task asks for, "
+                                "or all of them if it names none):")
+    return task.rstrip() + "\n\n" + head + "\n" + "\n".join("- " + json.dumps(t) for t in named)
+
+
 def _recent_runs(n: int = 6) -> list[dict]:
     with session() as s:
         rows = s.scalars(select(Run).order_by(Run.id.desc()).limit(n)).all()
@@ -60,6 +84,7 @@ def plan_node(state: PipelineState) -> dict:
     for d in plan.dispatches:  # the model proposes; code enforces the rules
         if d.agent in known and d.agent not in seen:
             seen.add(d.agent)
+            d.task = attach_targets(d.task, targets[d.agent])
             kept.append(d)
     plan.dispatches = kept
     return {"plan": plan.model_dump()}

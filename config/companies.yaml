@@ -8,6 +8,9 @@ workday:   # site = tenant:wdN:site, from https://<tenant>.<wdN>.myworkdayjobs.c
   - {company: Citi, site: citi:wd5:2}
   - {company: Capital One, site: capitalone:wd12:Capital_One}
   - {company: Bank Of America, site: ghr:wd1:Lateral-US}
+  - {company: U.S. Bank, site: usbank:wd1:US_Bank_Careers}
+  - {company: MUFG, site: mufgub:wd3:MUFG-Careers}
+
 oracle:    # host and site_number from https://<host>/hcmUI/CandidateExperience/en/sites/<site_number>
   - {company: JPMorgan Chase, host: jpmc.fa.oraclecloud.com, site_number: CX_1001}
   - {company: BNY, host: eofe.fa.us2.oraclecloud.com, site_number: BNY-Careers}
