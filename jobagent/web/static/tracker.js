@@ -286,7 +286,7 @@ async function loadKeywords(jobId) {
       `<span class="chip ${k.have ? "ok" : "gap"} w${k.weight}" title="${esc(k.evidence || "")}${k.have ? " · on your resume" : " · not on your resume"}">${esc(k.term)}</span>`).join("")}</span></div>`).join("") +
       `<div class="sub" style="margin-top:8px">${kw.keywords.length} keywords · green = in your skills, red = missing · ${esc(kw.model || "")} · ${esc(kw.created_at.slice(0, 16).replace("T", " "))} <a href="#" id="kw-copy">copy as list</a></div>`;
   } else if (!pending) body = `<div class="sub">Not extracted yet. The AI reads the full posting plus the terms similar roles ask for, and returns the keywords a resume for this job should contain.</div>`;
-  if (last && last.role === "assistant" && last.error) body += `<div class="cfgmsg err">${esc(last.error)}</div>`;
+  if (last && last.role === "assistant" && last.error) body += `<div class="cfgmsg err">${esc(last.error.length > 160 ? last.error.slice(0, 160) + "…" : last.error)}${/x-api-key|rejected the key/i.test(last.error) ? ' — check the key under Settings → AI model' : ""}</div>`;
   box.className = ""; box.innerHTML = `<div class="actions" style="margin:0 0 10px">${btn}${pending ? `<span class="sub">${pending.status === "queued" ? "queued in the " + esc(pending.lane) + " lane" : "running"}</span>` : ""}</div>${body}`;
   if (pending) kwTimer = setTimeout(() => loadKeywords(jobId), 3000);
 }

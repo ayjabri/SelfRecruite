@@ -85,6 +85,10 @@ def _llm_save(user_id: int | None, data: dict) -> dict:
     if data.get("clear_key"):
         new["api_key_enc"] = None
     elif key:
+        from jobagent.llm import test_key
+        check = test_key(new["provider"] if new["provider"] != "local" else "anthropic", key)
+        if not check["ok"]:
+            raise ValueError(f"key not saved: {check['detail']}")
         new["api_key_enc"] = encrypt(key)
     else:
         new["api_key_enc"] = current.get("api_key_enc")

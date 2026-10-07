@@ -117,6 +117,8 @@ def test_key(provider: str, api_key: str) -> dict:
     """One cheap call with a key: {'ok', 'detail', 'models'}."""
     if provider != "anthropic":
         return {"ok": False, "detail": "only Claude keys can be tested for now", "models": []}
+    if not api_key.startswith("sk-ant-") or len(api_key) < 40:
+        return {"ok": False, "detail": "that is not an Anthropic API key (they start with sk-ant- and are long); check the field", "models": []}
     try:
         models = _anthropic_models(api_key)
     except LLMError as e:

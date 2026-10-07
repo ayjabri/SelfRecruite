@@ -18,7 +18,9 @@ from jobagent.config import ROOT
 
 RUNS_DIR = ROOT / "data" / "runs"
 KEEP = 60
-LANES = {"llm": 1, "default": 2}          # lane -> how many may run at once
+LANES = {"llm": 1, "pipeline": 1, "default": 2}   # lane -> how many may run at once
+# the chat lane is one at a time (one GPU); crawls get their own lane so a slow pull never blocks a chat
+TIMEOUTS = {"llm": 15 * 60, "pipeline": 3 * 60 * 60, "default": 60 * 60}   # seconds before the watchdog stops a run
 LLM_TOOLS = ("judge_", "enrich_", "job_chat")   # tool-name prefixes that call the shared chat model
 _lock = threading.Lock()
 _runs: dict[str, dict] = {}
@@ -26,7 +28,9 @@ _queue: list[str] = []                    # run ids waiting, in order
 
 
 def lane_for(argv: list[str]) -> str:
-    if argv[:1] == ["pipeline"] or (argv[:1] == ["run"] and len(argv) > 1 and argv[1].startswith(LLM_TOOLS)):
+    if argv[:1] == ["pipeline"]:
+        return "pipeline"
+    if argv[:1] == ["run"] and len(argv) > 1 and argv[1].startswith(LLM_TOOLS):
         return "llm"
     return "default"
 
@@ -103,7 +107,18 @@ def _pump() -> None:
 
 
 def _wait(run: dict) -> None:
-    code = run["proc"].wait()
+    limit = TIMEOUTS.get(run["lane"], 3600)
+    try:
+        code = run["proc"].wait(timeout=limit)
+    except subprocess.TimeoutExpired:  # the watchdog: a run that overruns its lane's limit is stopped
+        run["proc"].terminate()
+        try:
+            code = run["proc"].wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            run["proc"].kill()
+            code = run["proc"].wait()
+        run["log_fh"].write(f"\nstopped by the watchdog after {limit // 60} minutes\n")
+        run["timed_out"] = True
     run["log_fh"].close()
     with _lock:
         run["status"] = "ok" if code == 0 else "failed"
