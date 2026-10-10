@@ -29,6 +29,7 @@ Add under `workday:` as `- {company: <name>, site: "<site key>"}`.
 |---|---|---|
 | Ally | `ally:wd1:Ally` | 91 |
 | Bank of America | `ghr:wd1:Lateral-US` | 1,969 |
+| Barclays (US) | `barclays:wd3:External_Career_Site_Barclays` | 767 (checked Oct 7, 2026) |
 | Deutsche Bank | `db:wd3:DBWebsite` | 1,164 |
 | Fannie Mae | `fanniemae:wd1:FannieMaeCareers` | 53 |
 | Morgan Stanley | `ms:wd5:External` | 1,347 |
@@ -63,6 +64,7 @@ Add under `workday:` as `- {company: <name>, site: "<site key>"}`.
 | FIS | `fis:wd5:SearchJobs` | 509 |
 | Fiserv | `fiserv:wd5:EXT` | 290 |
 | Mastercard | `mastercard:wd1:CorporateCareers` | 1,048 |
+| Visa | `visa:wd5:Visa` | 801 (checked Oct 7, 2026) |
 | Nasdaq | `nasdaq:wd1:Global_External_Site` | 181 |
 | S&P Global | `spgi:wd5:SPGI_Careers` | 273 |
 
@@ -179,10 +181,10 @@ Add under `greenhouse:` as `- <slug>`.
 | Meta | metacareers.com (own site) | No open endpoint found |
 | Wells Fargo | Workday on myworkdaysite.com | Different host pattern; the Workday tool would need a small change |
 | American Express | Eightfold | Needs a new adapter |
-| Visa | SmartRecruiters | In the build plan; not built yet |
 | Charles Schwab | iCIMS | Not supported; JobSpy would catch it |
-| Barclays, HSBC, UBS | Own sites or other systems | Not on the three sources under the names tried |
-| Bloomberg, Two Sigma, Citadel, D. E. Shaw | Own sites | Jane Street and Point72 are on Greenhouse (above) |
+| HSBC, UBS | Own sites or other systems | Not on the three sources under the names tried |
+| Bloomberg | Avature (bloomberg.avature.net) | Has a Workday tenant but no public job site on it; needs an Avature adapter |
+| Two Sigma, Citadel, D. E. Shaw | Own sites | Jane Street and Point72 are on Greenhouse (above) |
 | KKR, Apollo, Carlyle, Moody's, MetLife, Travelers, Chubb, Discover, Synchrony, Intuit, Snowflake, Dell | Not found on Workday under the names tried | May use Workday with a different tenant or site name, or another system |
 | Regional banks (Fifth Third, KeyBank, Huntington, M&T, Regions, Comerica, Zions, Webster, Valley, Flagstar) | Not found on Workday under the names tried | Same |
 | Insurers (New York Life, MassMutual, Guardian, Equitable, Voya, Lincoln, Allstate, Progressive, Liberty Mutual, Principal) | Not found on Workday under the names tried | Same |
