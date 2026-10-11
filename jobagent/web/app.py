@@ -657,6 +657,13 @@ def preference():
     return preference_status(current_user())
 
 
+@app.get("/api/score-check")
+def score_check_endpoint(threshold: int = 60):
+    """How the current user's fast score compares with their marks (the Score check tab)."""
+    from jobagent.tools.scorecheck import ScoreCheckInput, score_check
+    return score_check(ScoreCheckInput(user_id=current_user(), threshold=min(max(threshold, 1), 99))).model_dump(mode="json")
+
+
 @app.get("/api/runs")
 def list_runs():
     """Admins see every run; members only their own."""

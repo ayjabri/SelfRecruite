@@ -377,7 +377,10 @@ def label_job(args: LabelJobInput) -> LabelJobResult:
         if s.get(Job, args.job_id) is None:
             return LabelJobResult(job_id=args.job_id, error="no such job")
         row = user_job(s, uid, args.job_id)
-        row.user_label = None if args.label == "clear" else args.label
+        new = None if args.label == "clear" else args.label
+        if new != row.user_label:   # what the score said before it could learn from this mark (the score check's forward test)
+            row.label_score = None if new is None else row.fit_score
+        row.user_label = new
         row.user_labeled_at = None if args.label == "clear" else datetime.now(timezone.utc)
         return LabelJobResult(job_id=args.job_id, label=row.user_label)
 

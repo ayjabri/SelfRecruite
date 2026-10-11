@@ -92,6 +92,26 @@ def main() -> int:
             else:
                 errors.append("the preference model did not finish training in 2 minutes")
             print("ok  trained:", page.locator("#pref-body").inner_text()[:160].replace("\n", " "))
+            # score check: mark a job (its score at that moment is recorded), then read the report
+            page.click('button[data-tab="jobs"]'); page.select_option("#label", "unlabelled"); page.wait_for_timeout(900)
+            page.click("#list .row >> nth=0"); page.wait_for_timeout(900)
+            page.click('#detail button[data-label="not_interested"]'); page.wait_for_timeout(900)
+            with session() as s:
+                recorded = s.execute(text("select count(*) from user_jobs where user_id = :u and label_score is not null"), {"u": uid}).scalar()
+            print(("ok " if recorded == 1 else "BAD"), "score recorded with the mark:", recorded)
+            if recorded != 1:
+                errors.append("marking a job did not record its score")
+            page.select_option("#label", "all")
+            page.click('button[data-tab="check"]'); page.wait_for_selector("#check .checknums", timeout=15000)
+            body = page.locator("#check").inner_text()
+            for needle in ("held-out AUC", "By score band", "Interested, but scored below", "By your company groups", "Forward test", "At each training"):
+                if needle.lower() not in body.lower():
+                    errors.append(f"score check is missing: {needle}")
+            print("ok  score check:", " ".join(page.locator("#check .checknums").first.inner_text().split())[:150])
+            if len(sys.argv) > 2:
+                page.set_viewport_size({"width": 1400, "height": 1000}); page.screenshot(path=sys.argv[2], full_page=True)
+            page.locator("#check a[data-check-job]").first.click(); page.wait_for_timeout(1200)
+            print("ok  opened from score check:", page.locator("#detail h2").first.inner_text()[:50])
         finally:
             ctx.request.post(BASE + "/api/auth/delete", data=json.dumps({"password": PW}),
                              headers={"Content-Type": "application/json", "X-CSRF-Token": page.evaluate("me && me.csrf") or ""})

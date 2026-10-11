@@ -152,6 +152,7 @@ class UserJob(Base):
     fit_details: Mapped[dict | None] = mapped_column(JSONB)                  # components, per-bullet matches, gates
     user_label: Mapped[str | None] = mapped_column(Text)                     # interested | not_interested
     user_labeled_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    label_score: Mapped[int | None] = mapped_column(Integer)                 # the fit score shown when the mark was made
     favorite: Mapped[bool] = mapped_column(Boolean, server_default="false")
     applied_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     applied_resume_id: Mapped[int | None] = mapped_column(ForeignKey("resumes.id", ondelete="SET NULL"))  # which resume went out
@@ -173,6 +174,8 @@ class PreferenceModelRow(Base):
     trained_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
     meta: Mapped[dict] = mapped_column(JSONB, server_default="{}")
     blob: Mapped[bytes] = mapped_column(LargeBinary)
+    # for the score check: {"held_out": {job_id: 0-100 from a model that did not see that mark}, "history": [each training]}
+    diagnostics: Mapped[dict] = mapped_column(JSONB, server_default="{}")
 
 
 class JobSource(Base):

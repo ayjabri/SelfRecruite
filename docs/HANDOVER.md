@@ -65,10 +65,10 @@ jobagent/
   web/app.py        FastAPI: middleware (hardening headers, body limit, sign-in gate + CSRF), all /api
   web/configs.py    Settings data: profile sections + shared config files (ruamel, comment-preserving)
   web/runs.py       in-process run queue (lanes: llm=1, default=2), logs in data/runs/
-  web/index.html, login.html, static/{style.css, app, tracker, run, settings, groups, onboarding, admin, boot, login}.js
+  web/index.html, login.html, static/{style.css, app, tracker, run, settings, groups, check, onboarding, admin, boot, login}.js
 config/             companies.yaml (crawl list), filters.yaml (crawl coverage + template),
                     targets.yaml (scoring template), skills.yaml (catalogue), prompts/keywords.md
-migrations/versions  Alembic; latest a7b8c9d0e1f2
+migrations/versions  Alembic; latest b8c9d0e1f2a3
 ```
 
 Data model essentials: shared `companies`, `raw_postings`, `jobs` (+`job_sources`,
@@ -101,6 +101,10 @@ JSONB), `resumes` (one active), `golden_chunks` (resume sections, embedded), `us
   the company when it has its own statement, else its group.
 - Tracker: group filter; label filter "Interested, against my rules" lists marks a rule now caps or hides.
 - All page scripts share one global scope: `tests/test_page_scripts.py` parses them together.
+- Score check tab (`tools/scorecheck.py`, `static/check.js`, `GET /api/score-check`): held-out accuracy
+  vs the rule score, score bands, disagreements, per group/company, capped interested marks, forward
+  test, history. Training stores held-out scores and a history in `preference_models.diagnostics`;
+  `label_job` records `user_jobs.label_score` (the score when marked). Migration `b8c9d0e1f2a3`.
 
 ## Open items and known gaps
 

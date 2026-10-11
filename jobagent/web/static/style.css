@@ -177,6 +177,18 @@
   @media (max-width: 800px) { main { flex-direction: column; } #list { width: 100%; max-width: none; height: 40%; border-right: 0; border-bottom: 1px solid var(--line); } }
   #admin { flex: 1; overflow-y: auto; padding: 20px 28px 60px; }
   #admin[hidden] { display: none; }
+  #check { flex: 1; overflow-y: auto; padding: 20px 28px 60px; }
+  #check[hidden] { display: none; }
+  .checknums { display: flex; flex-wrap: wrap; gap: 14px 36px; }
+  .checknums > div { display: flex; gap: 10px; align-items: center; }
+  .checknums b { font-size: 26px; }
+  .checknums span { color: var(--muted); font-size: 12.5px; line-height: 1.35; }
+  .checktable td { border-top: 1px solid var(--line); padding: 5px 6px; }
+  .checkbar { display: inline-block; width: 100%; max-width: 320px; height: 9px; border-radius: 5px; background: var(--line); vertical-align: middle; overflow: hidden; }
+  .checkbar > span { display: block; height: 100%; border-radius: 5px; }
+  .checkpair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; margin-bottom: 14px; }
+  .checkpair > .card { margin-bottom: 0; min-width: 0; }
+  @media (max-width: 900px) { .checkpair { grid-template-columns: 1fr; } }
   #admin .nums b { color: var(--text); margin-left: 4px; }
   #onboarding { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 20; padding: 16px; }
   #onboarding[hidden] { display: none; }

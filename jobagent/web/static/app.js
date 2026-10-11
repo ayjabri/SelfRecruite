@@ -29,11 +29,12 @@ function showTab(name) {
   tab = name;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
   $("filters").hidden = name !== "jobs"; $("list").hidden = name !== "jobs"; $("detail").hidden = name !== "jobs";
-  $("dups").hidden = name !== "dups"; $("runpanel").hidden = name !== "run"; $("settings").hidden = name !== "settings"; $("admin").hidden = name !== "admin";
+  $("dups").hidden = name !== "dups"; $("runpanel").hidden = name !== "run"; $("settings").hidden = name !== "settings"; $("admin").hidden = name !== "admin"; $("check").hidden = name !== "check";
   try { localStorage.setItem("tab", name); } catch (e) {}
   if (name === "dups") renderDups();
   if (name === "settings") loadConfigs();
   if (name === "admin") renderAdmin();
+  if (name === "check") renderCheck();
   if (name === "run") { if (!tools.length && isAdmin()) loadTools(); refreshRuns(); loadPref(); } else clearTimeout(pollTimer);
 }
 $("tabs").addEventListener("click", e => { const b = e.target.closest("button[data-tab]"); if (b) showTab(b.dataset.tab); });

@@ -26,6 +26,7 @@ log = logging.getLogger(__name__)
 
 COMPONENTS = ["required", "preferred", "title_family", "seniority", "domain"]
 MIN_PER_CLASS = 15
+HISTORY = 60   # trainings kept for the score check
 FEATURES = 2   # 2: + the company segment and segment x role family (jobagent.groups)
 
 
@@ -89,17 +90,23 @@ def example_from(title, company, seniority, fit_details, embedding, segment=None
     )
 
 
-def cross_validated_auc(examples: list[Example], labels: list[int], repeats: int = 5) -> tuple[float, float]:
-    """Mean and spread of AUC over repeated 5-fold splits; every fold refits the whole model."""
+def held_out(examples: list[Example], labels: list[int], repeats: int = 5) -> tuple[float, float, list[float]]:
+    """Repeated 5-fold splits, refitting the whole model each fold: mean and spread of AUC, and for every
+    example its average prediction from the models that did not train on it."""
     y = np.array(labels)
-    aucs = []
+    aucs, total = [], np.zeros(len(y))
     for seed in range(repeats):
         scores = np.zeros(len(y))
         for train, test in StratifiedKFold(5, shuffle=True, random_state=seed).split(examples, y):
             m = PreferenceModel().fit([examples[i] for i in train], y[train].tolist())
             scores[test] = m.predict([examples[i] for i in test])
         aucs.append(roc_auc_score(y, scores))
-    return float(np.mean(aucs)), float(np.std(aucs))
+        total += scores
+    return float(np.mean(aucs)), float(np.std(aucs)), (total / repeats).tolist()
+
+
+def cross_validated_auc(examples: list[Example], labels: list[int], repeats: int = 5) -> tuple[float, float]:
+    return held_out(examples, labels, repeats)[:2]
 
 
 def _marked_rows(uid: int) -> list:
@@ -183,7 +190,7 @@ def train_preference_model(args: TrainInput) -> TrainResult:
                              segment=segs.segment(r.name), family=title_family(r.title, families)[1]) for r in rows]
     rule = [float((r.fit_details or {}).get("rule_score", 0)) for r in rows]
     out.rule_score_auc = round(float(roc_auc_score(labels, rule)), 3)
-    auc, spread = cross_validated_auc(examples, labels)
+    auc, spread, unseen = held_out(examples, labels)
     out.model_auc, out.model_auc_spread = round(auc, 3), round(spread, 3)
 
     model = PreferenceModel().fit(examples, labels)
@@ -192,12 +199,15 @@ def train_preference_model(args: TrainInput) -> TrainResult:
         "trained_at": now.isoformat(), "labels": len(labels),
         "interested": out.interested, "cv_auc": out.model_auc, "rule_score_auc": out.rule_score_auc,
         "marks_fingerprint": marks_fingerprint(rows, segs, families), "features": FEATURES,
+        "held_out": True,   # the held-out scores for the score check were stored with this training
     }
     buf = io.BytesIO()
     joblib.dump(model, buf)
     with session() as s, s.begin():
         row = s.get(PreferenceModelRow, uid) or PreferenceModelRow(user_id=uid, blob=b"")
         row.trained_at, row.meta, row.blob = now, model.meta, buf.getvalue()
+        history = [*((row.diagnostics or {}).get("history") or []), {k: model.meta[k] for k in ("trained_at", "labels", "interested", "cv_auc", "rule_score_auc")}]
+        row.diagnostics = {"held_out": {str(r.id): round(100 * p) for r, p in zip(rows, unseen)}, "history": history[-HISTORY:]}
         s.add(row)
     out.trained = True
     log.info("preference model for user %d trained on %d marks, held-out AUC %.3f (rule score %.3f)",
@@ -225,7 +235,7 @@ def preference_status(user_id: int | None = None) -> dict:
         "trained_at": row.trained_at.isoformat(timespec="seconds") if row else None,
         "labels_at_training": meta.get("labels"), "cv_auc": meta.get("cv_auc"), "rule_score_auc": meta.get("rule_score_auc"),
         "out_of_date": row is not None and (meta.get("marks_fingerprint") != marks_fingerprint(rows, segs, families)
-                                             or meta.get("features") != FEATURES),
+                                             or meta.get("features") != FEATURES or not meta.get("held_out")),
     }
 
 
