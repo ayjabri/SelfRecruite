@@ -52,9 +52,36 @@ def main() -> int:
             page.click("#list .row >> nth=0"); page.wait_for_timeout(1500)
             print("ok  detail:", page.locator("#detail h2").first.inner_text()[:50])
             page.click('button[data-tab="settings"]'); page.wait_for_timeout(800)
-            for name in ("scope", "targets", "skills", "llm", "resume", "account"):
+            for name in ("scope", "targets", "groups", "skills", "llm", "resume", "account"):
                 page.click(f'#cfgnav button[data-cfg="{name}"]'); page.wait_for_timeout(700)
             print("ok  settings pages:", page.locator("#cfgnav").inner_text()[:80].replace("\n", " "))
+            # company groups: a new profile starts with the suggested groups; state an interest and save
+            page.click('#cfgnav button[data-cfg="groups"]'); page.wait_for_selector(".gcard", timeout=10000)
+            tech = page.locator('.gcard[data-kind="group"]', has=page.locator('input.g-name[value="Tech"]'))
+            tech.locator('input[data-fam="G_tpm"]').check()
+            for _ in range(20):
+                if "capped" in tech.locator(".g-counts").inner_text():
+                    break
+                page.wait_for_timeout(500)
+            else:
+                errors.append("the groups preview did not show capped jobs for Tech")
+            print("ok  groups preview:", tech.locator(".g-counts").inner_text()[:110])
+            page.select_option("#g-addown", "Citi"); page.wait_for_selector('.gcard[data-kind="company"]')
+            page.fill('.gcard[data-kind="company"] .g-kw', "alm, liquidity"); page.wait_for_timeout(1200)
+            page.click("#cfg-save"); page.wait_for_selector("#cfg-after", timeout=10000)
+            with session() as s:
+                saved = s.execute(text("select targets from profiles where user_id = :u"), {"u": uid}).scalar()
+            ok = saved["company_groups"]["Tech"]["interest"].get("families") == ["G_tpm"] and saved["company_interest"]["Citi"]["keywords"] == ["alm", "liquidity"]
+            print(("ok " if ok else "BAD"), "groups saved:", json.dumps(saved["company_interest"]))
+            if not ok:
+                errors.append("the groups page did not save what was entered")
+            page.click('button[data-tab="jobs"]'); page.wait_for_selector("#group:not([hidden])", timeout=10000)
+            before = count(); page.select_option("#group", "Tech"); page.wait_for_timeout(900)
+            print(f"{'ok ' if before != count() else 'BAD'} filter group: {before!r} -> {count()!r}")
+            if before == count():
+                errors.append("the group filter did not change the list")
+            page.select_option("#group", ""); page.select_option("#label", "conflicts"); page.wait_for_timeout(1200)
+            print("ok  conflicts filter:", count()); page.select_option("#label", "all"); page.wait_for_timeout(700)
             page.click('button[data-tab="run"]'); page.wait_for_selector("#pref-train", timeout=10000)
             print("ok  preference card:", page.locator("#pref-body").inner_text()[:90].replace("\n", " "))
             page.click("#pref-train")   # a member may retrain their own model

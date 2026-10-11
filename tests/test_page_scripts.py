@@ -15,3 +15,14 @@ def test_script_parses(path):
     # compile without running: wrap in a never-called function so DOM access is not attempted
     src = Path(path).read_text()
     ctx.eval("(function(){\n" + src + "\n})")
+
+
+def test_scripts_do_not_redeclare_each_others_names():
+    """The page loads every script into one global scope: a second `const x` in another file stops that
+    file from loading at all. Parse them together, in the order index.html loads them."""
+    import re
+    html = (STATIC.parent / "index.html").read_text()
+    names = re.findall(r'<script src="/static/([\w.-]+)"', html)
+    assert names, "index.html loads no scripts?"
+    src = "\n".join((STATIC / n).read_text() for n in names)
+    mini_racer.MiniRacer().eval("(function(){\n" + src + "\n})")

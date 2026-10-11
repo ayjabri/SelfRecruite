@@ -1,6 +1,12 @@
 # Plan: interest by company group and by company
 
-Date: Oct 10, 2026 (revised the same day). Status: **awaiting approval.**
+Date: Oct 10, 2026 (revised the same day). Status: **approved and built Oct 10, 2026.**
+
+As built, two things differ from the text below: groups and statements live inside the profile's
+`targets` (keys `company_groups`, `company_interest`) with their own Settings page, and "score my
+jobs" now re-scores by itself whatever was scored under older settings or another resume
+(`targets_sha` and `golden_source_sha` in `fit_details`), so members no longer need an admin-only
+re-score after changing their profile.
 
 The request: the same role can be wanted at one kind of company and not at another. At a bank
 or fintech, applied AI/ML and pure technical roles are welcome; at technology companies only
@@ -67,7 +73,8 @@ An interest statement has three fields, the same at group and at company level:
   the job: "not a role you target at Tech companies") or `hide` (out of scope).
 
 A job qualifies if its title matches **any** listed family (every family it matches is checked,
-not only the best one) **or** contains any keyword. Empty statement = no restriction.
+not only the best one) **or** contains any keyword ("any", not "both": confirmed by the owner
+on Oct 10). Empty statement = no restriction.
 **The company's statement, when there is one, replaces its group's.** The rule applies over the
 learned score too, like the existing gates: what the user states beats what the model guesses.
 

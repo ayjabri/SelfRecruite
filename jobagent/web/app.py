@@ -375,13 +375,23 @@ def list_jobs(
     scope: Literal["in_scope", "all"] = "in_scope",
     posted: Literal["any", "24h", "7d", "30d"] = "any",
     sort: Literal["score", "newest", "match"] = "score", limit: int = 300, resume_id: int = 0,
+    group: str = "", conflicts: bool = False,
 ):
     uid = current_user()
     with session() as s:
         query = (select(Job, Company.name, UserJob).join(Company, Company.id == Job.company_id)
                  .outerjoin(UserJob, _mine(uid)).where(Job.duplicate_of.is_(None)))
+        if conflicts:   # marked interested, but one of the user's company or group rules caps or hides it
+            from jobagent.tools.groups import RulesReportInput, company_rules_report
+            query = query.where(Job.id.in_(company_rules_report(RulesReportInput(user_id=uid)).conflict_job_ids))
+            scope = "all"   # hidden jobs are out of scope, and they are the point of this list
         if scope == "in_scope":
             query = query.where(in_scope(uid))
+        if group:
+            from jobagent.groups import Segments
+            segs = Segments(configs.get_profile(uid)["targets"])
+            names = [n for n in s.scalars(select(Company.name)) if (segs.group(n) or "none") == group]
+            query = query.where(Company.name.in_(names))
         if q:
             query = query.where(or_(Job.title.ilike(f"%{q}%"), Job.description_text.ilike(f"%{q}%")))
         if company:
@@ -577,6 +587,7 @@ def summary():
         return {
             "in_scope": sum(counts.values()), "interested": counts.get("interested", 0),
             "not_interested": counts.get("not_interested", 0), "companies": companies,
+            "groups": list(configs.get_profile(uid)["targets"].get("company_groups") or {}),
             "pending_duplicates": pending, "favorites": favorites, "applied": applied,
         }
 
@@ -718,6 +729,20 @@ def put_config(name: str, body: ConfigBody):
     except Exception as e:  # bad YAML or unwritable file: tell the page why
         raise HTTPException(400, f"{type(e).__name__}: {e}")
     raise HTTPException(400, "send text or data")
+
+
+class GroupsPreviewBody(BaseModel):
+    data: dict[str, object]
+
+
+@app.post("/api/groups/preview")
+def groups_preview(body: GroupsPreviewBody):
+    """What the groups and interest statements on the page would do to the user's jobs; saves nothing."""
+    from jobagent.tools.groups import RulesReportInput, company_rules_report
+    report = company_rules_report(RulesReportInput(user_id=current_user(), draft=body.data))
+    if report.error:
+        raise HTTPException(400, report.error)
+    return {"segments": [c.model_dump() for c in report.segments], "conflicts": len(report.conflict_job_ids)}
 
 
 # --- the user's AI model ---------------------------------------------------------------------

@@ -21,11 +21,13 @@
 <header id="filters">
   <input type="search" id="q" placeholder="Search title or text">
   <select id="company"><option value="">All companies</option></select>
+  <select id="group" hidden title="Your company groups (Settings → Company groups)"><option value="">All groups</option></select>
   <select id="label">
     <option value="all">All jobs</option>
     <option value="unlabelled">Not yet marked</option>
     <option value="interested">Interested</option>
     <option value="not_interested">Not interested</option>
+    <option value="conflicts">Interested, against my rules</option>
   </select>
   <select id="posted">
     <option value="any">Posted any time</option>
@@ -87,6 +89,7 @@
 <script src="/static/tracker.js"></script>
 <script src="/static/run.js"></script>
 <script src="/static/settings.js"></script>
+<script src="/static/groups.js"></script>
 <script src="/static/onboarding.js"></script>
 <script src="/static/admin.js"></script>
 <script src="/static/boot.js"></script>

@@ -11,16 +11,20 @@ from pathlib import Path
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
+from jobagent import groups
 from jobagent.config import ROOT, get_settings
-from jobagent.users import get_profile, save_profile
+from jobagent.users import get_profile, profile_defaults, save_profile
 
 BACKUPS = ROOT / "data" / "config_backups"
 KEEP_BACKUPS = 20
 
-RESCORE = {"tool": "score_jobs_fast", "args": {"rescore": True}, "note": "Re-score every job in your scope"}
+# "score my jobs" re-scores whatever was scored under older settings, and anyone may run it
+RESCORE = {"command": "score", "label": "score my jobs", "note": "Apply it to your jobs"}
 PROFILE_SECTIONS = {
     "targets": {"title": "Scoring", "description": "Fit-score weights, title families, seniority, domain and the hard gates.",
                 "after": RESCORE},
+    "groups": {"title": "Company groups", "description": "Your own groups of companies, and which roles interest you in each group or company.",
+               "after": RESCORE},
     "scope": {"title": "Scope", "description": "Which jobs count for you: title keywords and allowed states.",
               "after": {"tool": "filter_pending_postings", "args": {"recheck": True},
                         "note": "Re-check stored postings so newly wanted titles get parsed; your scope and scores update on the next fast score"}},
@@ -95,11 +99,57 @@ def _llm_save(user_id: int | None, data: dict) -> dict:
     return new
 
 
+def _groups_view(user_id: int | None) -> dict:
+    """The Company groups page: the user's groups and interest statements, plus what the editor offers
+    (their role families, every company in the database, and the template's suggestions)."""
+    from sqlalchemy import select
+
+    from jobagent.db import session
+    from jobagent.models import Company
+    targets, template = get_profile(user_id)["targets"], profile_defaults()["targets"]
+    families = targets.get("title_families") or {}
+
+    def known(interest: dict | None) -> dict:   # a family deleted on the Scoring page drops out of the statements
+        interest = dict(interest or {})
+        if interest:
+            interest["families"] = [f for f in interest.get("families") or [] if f in families]
+        return interest
+    with session() as s:
+        companies = list(s.scalars(select(Company.name).order_by(Company.name)))
+    return {
+        "data": {
+            "company_groups": {g: {"companies": list((c or {}).get("companies") or []), "interest": known((c or {}).get("interest"))}
+                               for g, c in (targets.get("company_groups") or {}).items()},
+            "company_interest": {c: known(i) for c, i in (targets.get("company_interest") or {}).items()},
+        },
+        "families": {f: list((c or {}).get("keywords") or []) for f, c in families.items()},
+        "companies": companies,
+        "suggested_groups": template.get("company_groups") or {},
+        "missing_families": {f: c for f, c in (template.get("title_families") or {}).items() if f not in families},
+    }
+
+
+def _groups_save(targets: dict, data: dict) -> dict:
+    """Validated groups and interest statements merged into the targets. `add_families` copies role
+    families from the template (how an existing profile gets the TPM family)."""
+    families = dict(targets.get("title_families") or {})
+    template = profile_defaults()["targets"].get("title_families") or {}
+    for f in data.get("add_families") or []:
+        if f in template and f not in families:
+            families[f] = template[f]
+    return {**targets, "title_families": families, **groups.validate(data, families)}
+
+
 def read(name: str, user_id: int | None = None) -> dict:
     if name == "llm":
         return {"name": name, "kind": "profile", **PROFILE_SECTIONS[name], "data": _llm_view(get_profile(user_id)["llm"] or {})}
+    if name == "groups":
+        return {"name": name, "kind": "profile", **PROFILE_SECTIONS[name], **_groups_view(user_id)}
     if name in PROFILE_SECTIONS:
-        return {"name": name, "kind": "profile", **PROFILE_SECTIONS[name], "data": get_profile(user_id)[name]}
+        data = get_profile(user_id)[name]
+        if name == "targets":   # the groups have their own page
+            data = {k: v for k, v in data.items() if k not in groups.KEYS}
+        return {"name": name, "kind": "profile", **PROFILE_SECTIONS[name], "data": data}
     path = _path(name)
     text = path.read_text() if path.exists() else ""
     data = _yaml().load(text) if text.strip() else None
@@ -194,6 +244,15 @@ def save_text(name: str, text: str) -> dict:
 
 def save_data(name: str, data: dict, user_id: int | None = None) -> dict:
     """Save values from the form: into the user's profile, or merged into the file so its comments stay."""
+    if name in ("groups", "targets"):
+        current = get_profile(user_id)["targets"]
+        if name == "groups":
+            new = _groups_save(current, data)
+        else:   # the Scoring page does not carry the groups: keep them
+            new = {**{k: v for k, v in data.items() if k not in groups.KEYS}, **{k: current[k] for k in groups.KEYS if k in current}}
+        save_profile(user_id, targets=new)
+        _clear_caches()
+        return read(name, user_id)
     if name in PROFILE_SECTIONS:
         save_profile(user_id, **{name: _llm_save(user_id, data) if name == "llm" else data})
         _clear_caches()

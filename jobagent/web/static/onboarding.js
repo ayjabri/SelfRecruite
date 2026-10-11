@@ -21,7 +21,7 @@ async function openOnboarding() {
 }
 function closeOnboarding() { $("onboarding").hidden = true; }
 
-const FAMILY_LABELS = {A_product_delivery_ba: "Product / project management, business analysis", B_ai_product: "AI product management", C_quant: "Quantitative analytics and modeling", D_ai_ml: "AI and machine learning engineering", E_treasury_alm: "Treasury, ALM, interest-rate risk", F_technology: "Software, data and analytics engineering"};
+const FAMILY_LABELS = {A_product_delivery_ba: "Product / project management, business analysis", B_ai_product: "AI product management", C_quant: "Quantitative analytics and modeling", D_ai_ml: "AI and machine learning engineering", E_treasury_alm: "Treasury, ALM, interest-rate risk", F_technology: "Software, data and analytics engineering", G_tpm: "Technical program / project management"};
 const famLabel = k => FAMILY_LABELS[k] || k.replace(/^[A-Z]_/, "").replace(/_/g, " ");
 
 function renderOnboarding() {

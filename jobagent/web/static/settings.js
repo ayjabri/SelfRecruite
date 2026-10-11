@@ -69,6 +69,7 @@ async function loadConfigs() {
 function renderConfig() {
   const c = configs[cfgName]; if (!c) return;
   if (cfgName === "llm") return renderLlm(c);
+  if (cfgName === "groups") return renderGroups(c);
   const isFile = c.kind === "file";
   const head = `<div class="cfghead"><b>${esc(c.title)}</b>${isFile ? `<span class="path">${esc(c.path)}</span>` : ""}<span class="match" style="color:var(--muted)">${esc(c.description)}</span>
     <span class="right">${isFile ? `<label class="f"><input type="checkbox" id="cfg-yaml" ${cfgYaml ? "checked" : ""}> edit as YAML</label>` : ""}<button id="cfg-reload">Discard changes</button><button class="save" id="cfg-save">Save</button></span></div>
@@ -185,9 +186,9 @@ async function saveResume() {
     resumeSel = r.resume_id;
     await renderResume();
     const m = $("cfg-msg"); m.className = "cfgmsg ok";
-    m.innerHTML = r.unchanged ? "Identical to a resume already in the library." : activate ? `Saved and indexed into ${r.chunks} sections. Re-score every job: <button id="cfg-after">Run score_jobs_fast now</button>` : "Saved to the library.";
+    m.innerHTML = r.unchanged ? "Identical to a resume already in the library." : activate ? `Saved and indexed into ${r.chunks} sections. Re-score every job: <button id="cfg-after">Run score my jobs now</button>` : "Saved to the library.";
     $("cfg-after")?.addEventListener("click", async () => {
-      const run = await api("/api/runs", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({command: "run", tool: "score_jobs_fast", args: {rescore: true}})});
+      const run = await api("/api/runs", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({command: "score"})});
       showTab("run"); watch(run.id);
     });
   } catch (e) { msg.className = "cfgmsg err"; msg.textContent = "Not saved: " + e.message.replace(/^.*"detail":"?/, "").replace(/"?}$/, ""); $("resume-save").disabled = false; }
@@ -248,19 +249,20 @@ function collectConfig() {
 }
 async function saveConfig() {
   const msg = $("cfg-msg"), btn = $("cfg-save");
-  const body = cfgName === "llm" ? {data: collectLlm()} : cfgYaml && configs[cfgName].kind === "file" ? {text: $("cfg-text").value} : {data: collectConfig()};
+  const body = cfgName === "llm" ? {data: collectLlm()} : cfgName === "groups" ? {data: collectGroups()} : cfgYaml && configs[cfgName].kind === "file" ? {text: $("cfg-text").value} : {data: collectConfig()};
   btn.disabled = true; msg.className = "cfgmsg"; msg.textContent = "Saving…";
   try {
     const c = await api("/api/config/" + cfgName, {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
     configs[cfgName] = c; renderConfig();
     const m = $("cfg-msg"); m.className = "cfgmsg ok";
-    m.innerHTML = `Saved ${esc(c.path)} at ${new Date().toLocaleTimeString()}.` + (c.after ? ` ${esc(c.after.note)}: <button id="cfg-after">Run ${esc(c.after.tool)} now</button>` : "");
+    m.innerHTML = `Saved ${esc(c.path || c.title)} at ${new Date().toLocaleTimeString()}.` + (c.after ? ` ${esc(c.after.note)}: <button id="cfg-after">Run ${esc(c.after.label || c.after.tool)} now</button>` : "");
     if (c.after) $("cfg-after").addEventListener("click", async () => {
-      try { const r = await api("/api/runs", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({command: "run", tool: c.after.tool, args: c.after.args})}); showTab("run"); watch(r.id); }
+      const run = c.after.command ? {command: c.after.command} : {command: "run", tool: c.after.tool, args: c.after.args};
+      try { const r = await api("/api/runs", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(run)}); showTab("run"); watch(r.id); }
       catch (e) { $("cfg-msg").className = "cfgmsg err"; $("cfg-msg").textContent = e.message; }
     });
     if (cfgName === "skills" && selected != null) select(selected);
-    if (cfgName === "scope") loadSummary();
+    if (cfgName === "scope" || cfgName === "groups") loadSummary();
   } catch (e) {
     msg.className = "cfgmsg err"; msg.textContent = "Not saved: " + e.message.replace(/^.*"detail":"?/, "").replace(/"?}$/, "");
     btn.disabled = false;
@@ -289,6 +291,6 @@ $("cfgbody").addEventListener("click", e => {
 });
 $("cfgbody").addEventListener("change", e => {
   if (e.target.id === "cfg-yaml") { cfgYaml = e.target.checked; renderConfig(); }
-  if (e.target.type === "checkbox" && e.target.closest(".field.cfg")) e.target.parentElement.lastChild.textContent = " " + (e.target.checked ? "on" : "off");
+  if (e.target.type === "checkbox" && e.target.closest(".field.cfg") && !e.target.closest(".gcard")) e.target.parentElement.lastChild.textContent = " " + (e.target.checked ? "on" : "off");
 });
 

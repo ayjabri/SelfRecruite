@@ -11,11 +11,12 @@ from typing import Literal
 import httpx
 import numpy as np
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, null, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import aliased
 
 from jobagent.db import session
+from jobagent.groups import Segments, targets_sha, title_family  # noqa: F401 - title_family is re-exported
 from jobagent.models import Company, GoldenChunk, Job, JobSource, RawPosting, UserJob
 from jobagent.parse.schema import ParsedJob
 from jobagent.tools.embeddings import QUERY, embed_texts
@@ -90,15 +91,25 @@ class ScopeResult(BaseModel):
 )
 def compute_scope(args: ScopeInput) -> ScopeResult:
     uid = resolve_user(args.user_id)
-    scope = get_profile(uid)["scope"]
+    profile = get_profile(uid)
+    scope, segs = profile["scope"], Segments(profile["targets"])
     out = ScopeResult()
     reasons: dict[str, int] = {}
     with session() as s, s.begin():
-        rows = s.execute(select(Job.id, Job.title, Job.locations, Job.workplace_type)
+        # the requirement bullets are only read when an interest statement has keywords to look for in them
+        cols = [Job.id, Job.title, Job.locations, Job.workplace_type, Company.name,
+                Job.parsed if segs.needs_bullets else null().label("parsed")]
+        rows = s.execute(select(*cols).join(Company, Company.id == Job.company_id)
                          .where(Job.duplicate_of.is_(None), Job.parsed.is_not(None))).all()
         values = []
-        for job_id, title, locations, workplace in rows:
+        for job_id, title, locations, workplace, company, parsed in rows:
             ok, reason = job_in_scope(title, locations, workplace, scope)
+            if ok and segs.has_rules:  # "hide" in a company or group interest statement
+                verdict = segs.check(company, title)
+                if verdict.action and parsed:   # the title alone does not qualify: look for the keywords in the bullets
+                    verdict = segs.check(company, title, posting_bullets(parsed))
+                if verdict.action == "hide":
+                    ok, reason = False, "hidden by a company or group rule"
             values.append({"user_id": uid, "job_id": job_id, "in_scope": ok})
             out.in_scope += ok
             if not ok:
@@ -113,19 +124,18 @@ def compute_scope(args: ScopeInput) -> ScopeResult:
     return out
 
 
+def posting_bullets(parsed: dict | None) -> list[str]:
+    """Requirement and preferred bullets of a stored parsed posting, for keyword rules."""
+    if not parsed:
+        return []
+    p = ParsedJob.model_validate(parsed)
+    return [*p.requirements, *p.bullets("preferred")]
+
+
 # --- rule score ---------------------------------------------------------------------------------
 
 def rescale(sim: float, floor: float, ceiling: float) -> float:
     return float(min(1.0, max(0.0, (sim - floor) / (ceiling - floor))))
-
-
-def title_family(title: str, families: dict) -> tuple[float, str | None]:
-    best, name = 0.0, None
-    for family, cfg in (families or {}).items():
-        rx = phrase_regex(cfg.get("keywords") or [])
-        if rx and rx.search(title) and float(cfg.get("weight", 1.0)) > best:
-            best, name = float(cfg.get("weight", 1.0)), family
-    return best, name
 
 
 def domain_fit(company: str, title: str, bullets: list[str], domains: dict) -> float:
@@ -165,6 +175,14 @@ def combine(m: float, p: float, f: float, s: float, d: float, weights: dict, tri
     return round(min(score, GATE_CAP) if tripped else score)
 
 
+def stale(cfg_sha: str, resume_sha: str):
+    """SQL condition on user_jobs: never scored, or scored under other scoring settings or another resume.
+    This is what lets "score my jobs" catch up after any change, without a separate re-score."""
+    return (UserJob.fit_score.is_(None)
+            | UserJob.fit_details["targets_sha"].astext.is_distinct_from(cfg_sha)
+            | UserJob.fit_details["golden_source_sha"].astext.is_distinct_from(resume_sha))
+
+
 class ScoreJobsInput(BaseModel):
     user_id: int | None = Field(None, description="Whose scores to compute; default: the current user")
     rescore: bool = Field(False, description="Score again jobs that already have a fast score, e.g. after the targets changed")
@@ -197,6 +215,7 @@ class ScoreJobsResult(BaseModel):
 def score_jobs_fast(args: ScoreJobsInput) -> ScoreJobsResult:
     uid = resolve_user(args.user_id)
     cfg = get_profile(uid)["targets"]
+    segs, cfg_sha = Segments(cfg), targets_sha(cfg)
     sim_cfg = cfg.get("similarity") or {}
     floor, ceiling = float(sim_cfg.get("floor", 0.55)), float(sim_cfg.get("ceiling", 0.80))
     out = ScoreJobsResult()
@@ -219,8 +238,8 @@ def score_jobs_fast(args: ScoreJobsInput) -> ScoreJobsResult:
         )
         if args.scope == "in_scope":
             query = query.where(in_scope(uid))
-        if not args.rescore:
-            query = query.where(UserJob.fit_score.is_(None))
+        if not args.rescore:  # new jobs, and jobs scored under scoring settings that have changed since
+            query = query.where(stale(cfg_sha, sha))
         jobs = s.execute(query.limit(args.limit)).all()
 
     headings = [c.heading for c in chunks]
@@ -281,6 +300,9 @@ def score_jobs_fast(args: ScoreJobsInput) -> ScoreJobsResult:
         sen = float((cfg.get("seniority") or {}).get(parsed.seniority, 0.5))
         d = domain_fit(job.name, job.title, [t for _, t in bullets], cfg.get("domains") or {})
         tripped = gates(parsed, job.comp_max, cfg.get("gates") or {})
+        verdict = segs.check(job.name, job.title, [t for _, t in bullets])
+        if verdict.action:   # "hide" is applied by the scope; if such a job is scored anyway it is capped
+            tripped.append(verdict.reason.removeprefix("hidden: "))
         rule_score = combine(m, p, f, sen, d, cfg.get("weights"), [])
         scores.append(rule_score)
         out.gated += bool(tripped)
@@ -289,6 +311,7 @@ def score_jobs_fast(args: ScoreJobsInput) -> ScoreJobsResult:
             "components": {"required": round(m, 2), "preferred": round(p, 2), "title_family": round(f, 2),
                            "seniority": round(sen, 2), "domain": round(d, 2)},
             "title_family": family, "seniority": parsed.seniority, "gates": tripped,
+            "segment": verdict.segment, "group": verdict.group, "targets_sha": cfg_sha,
             "sections_quality": parsed.sections_quality, "bullets": detail,
             "golden_source_sha": sha, "scored_at": now,
         }))
@@ -318,7 +341,7 @@ def score_jobs_fast(args: ScoreJobsInput) -> ScoreJobsResult:
     with session() as s:
         remaining = (select(func.count()).select_from(Job)
                      .outerjoin(UserJob, (UserJob.job_id == Job.id) & (UserJob.user_id == uid))
-                     .where(UserJob.fit_score.is_(None), Job.parsed.is_not(None), Job.duplicate_of.is_(None)))
+                     .where(stale(cfg_sha, sha), Job.parsed.is_not(None), Job.duplicate_of.is_(None)))
         if args.scope == "in_scope":
             remaining = remaining.where(in_scope(uid))
         out.remaining = s.scalar(remaining)

@@ -15,11 +15,15 @@ async function loadSummary() {
   const sel = $("company"), cur = sel.value;
   sel.innerHTML = '<option value="">All companies</option>' + s.companies.map(c => `<option>${esc(c)}</option>`).join("");
   sel.value = cur;
+  const gsel = $("group"), gcur = gsel.value;   // the user's own company groups, when they have any
+  gsel.innerHTML = '<option value="">All groups</option>' + s.groups.map(g => `<option>${esc(g)}</option>`).join("") + '<option value="none">No group</option>';
+  gsel.value = s.groups.includes(gcur) || gcur === "none" ? gcur : ""; gsel.hidden = !s.groups.length;
 }
 
 async function loadJobs(keep) {
+  const conflicts = $("label").value === "conflicts";   // marked interested, but a company or group rule caps or hides it
   const p = new URLSearchParams({
-    q: $("q").value, company: $("company").value, label: $("label").value, flag: $("flag").value, sort: $("sort").value, posted: $("posted").value,
+    q: $("q").value, company: $("company").value, group: $("group").value, conflicts, label: conflicts ? "interested" : $("label").value, flag: $("flag").value, sort: $("sort").value, posted: $("posted").value,
     min_score: $("min_score").value || 0, scope: $("scope").checked ? "all" : "in_scope", resume_id: filterResume || 0,
   });
   const data = await api("/api/jobs?" + p);
@@ -114,6 +118,7 @@ function renderDetail(j) {
     j.min_years != null && j.min_years + "+ years", money(j),
     j.visa && j.visa !== "unstated" && "visa sponsorship: " + j.visa,
     j.posted ? "posted " + j.posted : "first seen " + j.first_seen,
+    d.group && "group: " + d.group,
   ].filter(Boolean).map(f => `<span class="chip">${esc(f)}</span>`).join("");
   const gates = (d.gates || []).map(g => `<span class="chip warn">capped at 30: ${esc(g)}</span>`).join("");
   const other = (j.sections || []).filter(s => s.label === "responsibilities" || s.label === "other");
@@ -256,7 +261,7 @@ $("detail").addEventListener("click", e => {
 $("detail").addEventListener("input", e => { if (e.target.id === "notes") notesChanged(); });
 // the filter bar: any change reloads the list (debounced for typing)
 let filterTimer;
-for (const id of ["q", "company", "label", "flag", "posted", "min_score", "sort", "scope"])
+for (const id of ["q", "company", "group", "label", "flag", "posted", "min_score", "sort", "scope"])
   $(id).addEventListener("input", () => { clearTimeout(filterTimer); filterTimer = setTimeout(() => loadJobs(false), 250); });
 $("detail").addEventListener("change", e => { if (e.target.id === "applied-resume" && selected != null) annotate(selected, {applied_resume_id: +e.target.value}); });
 $("detail").addEventListener("click", e => {

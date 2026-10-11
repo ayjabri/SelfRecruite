@@ -17,14 +17,16 @@ from sklearn.preprocessing import OneHotEncoder
 from sqlalchemy import select
 
 from jobagent.db import session
+from jobagent.groups import NO_SEGMENT, Segments, title_family
 from jobagent.models import Company, Job, PreferenceModelRow, UserJob
 from jobagent.tools.registry import tool_spec
-from jobagent.users import resolve_user
+from jobagent.users import get_profile, resolve_user
 
 log = logging.getLogger(__name__)
 
 COMPONENTS = ["required", "preferred", "title_family", "seniority", "domain"]
 MIN_PER_CLASS = 15
+FEATURES = 2   # 2: + the company segment and segment x role family (jobagent.groups)
 
 
 class Example(BaseModel):
@@ -35,16 +37,20 @@ class Example(BaseModel):
     title_family: str
     components: list[float]
     embedding: list[float]
+    segment: str = NO_SEGMENT   # the company if the user singled it out, else its group
 
 
 class PreferenceModel:
-    """Logistic regression over title words, company, seniority, title family,
-    the rule-score components and the job embedding."""
+    """Logistic regression over title words, company, seniority, title family, the rule-score
+    components, the job embedding, and the user's company segment crossed with the role family:
+    the same role can be wanted in one group of companies and not in another."""
 
     def __init__(self, C: float = 3.0):
         self.tfidf = TfidfVectorizer(ngram_range=(1, 2), min_df=2, sublinear_tf=True)
         self.onehot = OneHotEncoder(handle_unknown="ignore")
+        self.segments = OneHotEncoder(handle_unknown="ignore")
         self.clf = LogisticRegression(C=C, max_iter=3000)
+        self.features = FEATURES
         self.meta: dict = {}
 
     def _matrix(self, examples: list[Example], fit: bool):
@@ -55,7 +61,11 @@ class PreferenceModel:
         dense = np.hstack([emb, np.array([e.components for e in examples], dtype=np.float64)])
         t = self.tfidf.fit_transform(titles) if fit else self.tfidf.transform(titles)
         c = self.onehot.fit_transform(cats) if fit else self.onehot.transform(cats)
-        return hstack([t, c, csr_matrix(dense)]).tocsr()
+        parts = [t, c, csr_matrix(dense)]
+        if getattr(self, "features", 1) >= 2:   # a model saved before segments existed keeps working until retrained
+            seg = [[e.segment, f"{e.segment}|{e.title_family}"] for e in examples]
+            parts.append(self.segments.fit_transform(seg) if fit else self.segments.transform(seg))
+        return hstack(parts).tocsr()
 
     def fit(self, examples: list[Example], labels: list[int]) -> "PreferenceModel":
         self.clf.fit(self._matrix(examples, fit=True), labels)
@@ -65,13 +75,17 @@ class PreferenceModel:
         return self.clf.predict_proba(self._matrix(examples, fit=False))[:, 1].tolist()
 
 
-def example_from(title, company, seniority, fit_details, embedding) -> Example:
-    comps = (fit_details or {}).get("components") or {}
+def example_from(title, company, seniority, fit_details, embedding, segment=None, family=...) -> Example:
+    """`segment` and `family` default to what the last scoring stored; training passes them fresh from
+    the profile so a change of groups or role families is learned without waiting for a re-score."""
+    details = fit_details or {}
+    comps = details.get("components") or {}
     return Example(
         title=title, company=company, seniority=seniority or "unknown",
-        title_family=(fit_details or {}).get("title_family") or "none",
+        title_family=(details.get("title_family") if family is ... else family) or "none",
         components=[float(comps.get(k, 0.0)) for k in COMPONENTS],
         embedding=[float(x) for x in embedding],
+        segment=segment or details.get("segment") or NO_SEGMENT,
     )
 
 
@@ -100,9 +114,17 @@ def _marked_rows(uid: int) -> list:
         ).all()
 
 
-def marks_fingerprint(rows) -> str:
-    """Changes whenever a mark is added, removed or flipped: tells whether the model is out of date."""
-    marks = sorted(f"{r.id}:{r.user_label}" for r in rows)
+def _context(uid: int) -> tuple[Segments, dict]:
+    """The user's company segments and role families, as training and the staleness check see them."""
+    targets = get_profile(uid)["targets"]
+    return Segments(targets), targets.get("title_families") or {}
+
+
+def marks_fingerprint(rows, segs: Segments | None = None, families: dict | None = None) -> str:
+    """Changes whenever a mark is added, removed or flipped, or a marked job moves to another company
+    segment or role family: tells whether the model is out of date."""
+    segs = segs or Segments(None)
+    marks = sorted(f"{r.id}:{r.user_label}:{segs.segment(r.name)}:{title_family(r.title, families)[1]}" for r in rows)
     return hashlib.sha256(",".join(marks).encode()).hexdigest()[:16]
 
 
@@ -151,12 +173,14 @@ def train_preference_model(args: TrainInput) -> TrainResult:
     uid = resolve_user(args.user_id)
     out = TrainResult()
     rows = _marked_rows(uid)
+    segs, families = _context(uid)
     labels = [int(r.user_label == "interested") for r in rows]
     out.interested, out.not_interested = sum(labels), len(labels) - sum(labels)
     if min(out.interested, out.not_interested) < MIN_PER_CLASS:
         out.error = f"need at least {MIN_PER_CLASS} jobs marked each way; have {out.interested} interested, {out.not_interested} not"
         return out
-    examples = [example_from(r.title, r.name, r.seniority, r.fit_details, r.embedding) for r in rows]
+    examples = [example_from(r.title, r.name, r.seniority, r.fit_details, r.embedding,
+                             segment=segs.segment(r.name), family=title_family(r.title, families)[1]) for r in rows]
     rule = [float((r.fit_details or {}).get("rule_score", 0)) for r in rows]
     out.rule_score_auc = round(float(roc_auc_score(labels, rule)), 3)
     auc, spread = cross_validated_auc(examples, labels)
@@ -167,7 +191,7 @@ def train_preference_model(args: TrainInput) -> TrainResult:
     model.meta = {
         "trained_at": now.isoformat(), "labels": len(labels),
         "interested": out.interested, "cv_auc": out.model_auc, "rule_score_auc": out.rule_score_auc,
-        "marks_fingerprint": marks_fingerprint(rows),
+        "marks_fingerprint": marks_fingerprint(rows, segs, families), "features": FEATURES,
     }
     buf = io.BytesIO()
     joblib.dump(model, buf)
@@ -194,12 +218,14 @@ def preference_status(user_id: int | None = None) -> dict:
         row = s.execute(select(PreferenceModelRow.trained_at, PreferenceModelRow.meta)
                         .where(PreferenceModelRow.user_id == uid)).first()
     meta = (row.meta if row else None) or {}
+    segs, families = _context(uid)
     return {
         "interested": interested, "not_interested": len(rows) - interested, "min_per_class": MIN_PER_CLASS,
         "can_train": min(interested, len(rows) - interested) >= MIN_PER_CLASS,
         "trained_at": row.trained_at.isoformat(timespec="seconds") if row else None,
         "labels_at_training": meta.get("labels"), "cv_auc": meta.get("cv_auc"), "rule_score_auc": meta.get("rule_score_auc"),
-        "out_of_date": row is not None and meta.get("marks_fingerprint") != marks_fingerprint(rows),
+        "out_of_date": row is not None and (meta.get("marks_fingerprint") != marks_fingerprint(rows, segs, families)
+                                             or meta.get("features") != FEATURES),
     }
 
 

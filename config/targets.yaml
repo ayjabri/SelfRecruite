@@ -44,6 +44,9 @@ title_families:
   F_technology:              # Variant F — Technology & Engineering
     weight: 0.8
     keywords: [python, tableau]
+  G_tpm:                     # Technical program / project management
+    weight: 1
+    keywords: [technical program manager, technical project manager, tpm]
 
 # S: how well each seniority level suits you. You are searching for Director roles.
 # At the listed banks (below), Executive Director / Director / SVP read as "director",
@@ -79,3 +82,19 @@ gates:
   phd_required: true         # cap jobs whose requirements name a PhD (Variant C: no PhD-gated quant research)
   pay_floor: 200000          # e.g. 200000: cap jobs whose top of range is below this
   allowed_states: [NY, NJ, CT] # cap non-remote jobs located elsewhere at 30 (remote jobs pass)
+
+# Company groups: your own grouping of employers (Settings -> Company groups). A group, or one
+# company, can carry an interest statement: the role families (above) and extra keywords you would
+# take there, and what happens to every other job there (cap: score at most 30; hide: out of scope).
+#   Tech: {companies: [NVIDIA], interest: {families: [G_tpm], keywords: [], otherwise: cap}}
+# A new profile starts with these groups and no statements, so nothing is restricted.
+company_groups:
+  Banks:
+    companies: [JPMorgan Chase, Citi, BNY, Goldman Sachs, Citizens Bank, Capital One, Bank Of America, U.S. Bank,
+          MUFG, Barclays, Morgan Stanley, Wells Fargo, Deutsche Bank, HSBC, UBS, TD Bank]
+  Fintech:
+    companies: [Stripe, Mastercard, Visa, PayPal, Block, Fiserv, FIS, Broadridge, American Express]
+  Tech:
+    companies: [NVIDIA, Anthropic, Databricks]
+# One company that differs from its group:  Citi: {families: [E_treasury_alm], keywords: [alm], otherwise: cap}
+company_interest: {}

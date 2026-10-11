@@ -48,9 +48,11 @@ Plans and decisions, in order: `docs/BUILD_PLAN.md` (original), `docs/AGENT_PLAN
 ```
 jobagent/
   config.py, db.py, models.py, users.py, auth.py, secrets.py, llm.py, prompts.py, skills.py
+  groups.py         per-user company groups + interest statements (Segments.check: qualify / cap / hide)
   tools/            one file per capability; @tool_spec registers Pydantic in/out in TOOLS
                     (sources greenhouse/workday/oracle; filtering, parsing, embeddings, dedup,
-                     scoring (+compute_scope, label, annotate), preference, judging (legacy),
+                     scoring (+compute_scope, label, annotate), preference (+refresh, segment features),
+                     groups (company_rules_report), judging (legacy),
                      keywords (job_keywords_context, save_job_keywords, job_chat), cleanup, skills)
   agents/           AgentSpec registry: kind=source | stage (scope crawl|user) | job
     graph.py        pipeline graph: plan -> sources -> review -> crawl stages -> user_stages per user -> report
@@ -63,7 +65,7 @@ jobagent/
   web/app.py        FastAPI: middleware (hardening headers, body limit, sign-in gate + CSRF), all /api
   web/configs.py    Settings data: profile sections + shared config files (ruamel, comment-preserving)
   web/runs.py       in-process run queue (lanes: llm=1, default=2), logs in data/runs/
-  web/index.html, login.html, static/{style.css, app, tracker, run, settings, onboarding, admin, boot, login}.js
+  web/index.html, login.html, static/{style.css, app, tracker, run, settings, groups, onboarding, admin, boot, login}.js
 config/             companies.yaml (crawl list), filters.yaml (crawl coverage + template),
                     targets.yaml (scoring template), skills.yaml (catalogue), prompts/keywords.md
 migrations/versions  Alembic; latest a7b8c9d0e1f2
@@ -87,6 +89,18 @@ JSONB), `resumes` (one active), `golden_chunks` (resume sections, embedded), `us
   syntax error in one file silently breaks the page.
 - Every function is a registered tool callable by an agent, the CLI and the API; adding a
   source / stage / job agent is one `AgentSpec` file.
+
+## Scoring, as of Oct 10, 2026 (docs/INDUSTRY_SCORING_PLAN.md)
+
+- User stages: `preference_agent` (retrains the user's model when marks, groups or role families
+  changed; `refresh_preference_model`) then `fast_score_agent`. `score_jobs_fast` re-scores any job
+  whose `fit_details.targets_sha` / `golden_source_sha` is stale, so "score my jobs" always converges.
+- Company groups (Settings → Company groups) live in `profile.targets.company_groups` /
+  `company_interest`. A statement = role families + keywords + cap|hide; a job qualifies on any
+  family or keyword; the company's statement replaces its group's. The model's `segment` feature is
+  the company when it has its own statement, else its group.
+- Tracker: group filter; label filter "Interested, against my rules" lists marks a rule now caps or hides.
+- All page scripts share one global scope: `tests/test_page_scripts.py` parses them together.
 
 ## Open items and known gaps
 
