@@ -1,0 +1,28 @@
+# Enforces the promotion path. GitHub rulesets cannot restrict a pull request's source branch,
+# so this check does it and the rulesets require it to pass:
+#   feature/<name> -> dev -> uat -> main
+name: branch-flow
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]   # "edited" covers a changed base branch
+
+jobs:
+  branch-flow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check that this source branch may merge into the target
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          case "$BASE" in
+            main) [ "$HEAD" = "uat" ] || fail "only uat may be merged into main (this PR comes from $HEAD)" ;;
+            uat)  [ "$HEAD" = "dev" ] || fail "only dev may be merged into uat (this PR comes from $HEAD)" ;;
+            dev)  case "$HEAD" in
+                    feature/*) ;;
+                    *) fail "only feature/<name> branches may be merged into dev (this PR comes from $HEAD)" ;;
+                  esac ;;
+          esac
+          echo "ok: $HEAD -> $BASE"

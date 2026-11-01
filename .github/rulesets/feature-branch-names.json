@@ -1,0 +1,28 @@
+{
+  "name": "Branch names: feature/<name> only",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": ["~ALL"],
+      "exclude": [
+        "~DEFAULT_BRANCH",
+        "refs/heads/main",
+        "refs/heads/uat",
+        "refs/heads/dev"
+      ]
+    }
+  },
+  "rules": [
+    {
+      "type": "branch_name_pattern",
+      "parameters": {
+        "name": "feature/<feature-name>",
+        "operator": "regex",
+        "pattern": "^feature/[a-z0-9][a-z0-9._-]*$",
+        "negate": false
+      }
+    }
+  ]
+}

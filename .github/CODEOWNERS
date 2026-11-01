@@ -1,0 +1,4 @@
+# The repository owner reviews every pull request. Combined with the "require code owner
+# review" rule in .github/rulesets/protected-branches.json, nothing merges into dev, uat or
+# main without the owner's approval.
+* @ayjabri
