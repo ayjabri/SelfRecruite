@@ -1,10 +1,26 @@
+# secrets and local configuration
 .env
+.env.*
+!.env.example
+data/
+backups/
+*.dump
+
+# personal resumes kept in the checkout
+/docs/*Resume*.md
+/resumes/
+
+# python
 __pycache__/
 *.pyc
 .venv/
-backups/
+venv/
 *.egg-info/
 .pytest_cache/
-# golden-source resume (personal)
-/docs/Ethan_*
-data/
+build/
+dist/
+
+# editors and OS
+.idea/
+.vscode/
+.DS_Store

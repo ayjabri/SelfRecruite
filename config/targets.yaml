@@ -1,6 +1,6 @@
 # What a good job looks like for you. Used by the fast score (no LLM) and the preference model.
-# Derived from the golden-source resume (EXECUTIVE PROFILE — Variants A–F) and your current search:
-# Director-level roles, New York / New Jersey, banking and financial technology.
+# This template describes one search: Director-level roles, New York / New Jersey, banking and
+# financial technology, with title families A–F matching the variants of one resume. Edit it for yours.
 # After editing, run:  jobagent run score_jobs_fast --rescore true   (then train_preference_model)
 
 # rule score = 100 x (required*M + preferred*P + title_family*F + seniority*S + domain*D)
@@ -18,7 +18,7 @@ similarity:
   ceiling: 0.8
 
 # F: the highest weight among the families whose keywords appear in the title (0 if none).
-# One family per Executive Profile variant, so a job's family also says which variant to tailor from.
+# One family per resume variant, so a job's family also says which variant to tailor from.
 title_families:
   E_treasury_alm:            # Variant E — Treasury & ALM
     weight: 1

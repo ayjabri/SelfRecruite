@@ -1,18 +1,16 @@
-# Handover — Self Recruiter (AI) / jobagent
+# Handover — SelfRecruite (package `jobagent`)
 
 Written Oct 6, 2026 for whoever (or whichever conversation) picks this up next. Everything
 below is current as of commit `9b73a99` on `main`.
 
 ## What it is
 
-A multi-user job-match platform on this server (`/srv/jobagent`, Ubuntu, host `llm`,
-LAN address 10.0.0.100). A shared crawl pulls postings from Greenhouse, Workday and Oracle
+A multi-user job-match platform, self-hosted on the owner's Ubuntu server and reached over the LAN. A shared crawl pulls postings from Greenhouse, Workday and Oracle
 Recruiting sites, parses them with rules (no LLM), embeds them, de-duplicates them. Each
 user has a profile (scope, scoring targets, skills), a library of markdown resumes, fast fit
 scores from embeddings + rules + a preference model trained on their marks, and an on-demand
 AI conversation per job (today: keyword extraction) on either the shared local model or their
-own Claude key. The owner is Ethan / Ayman (user 1, admin, `ayjabri@gmail.com`); a second
-account `ethan.jabri@gmail.com` is a member.
+own Claude key. The owner is user 1 (admin); a second account is a member.
 
 Plans and decisions, in order: `docs/BUILD_PLAN.md` (original), `docs/AGENT_PLAN.md`
 (agentic rebuild), `docs/MULTIUSER_PLAN.md` (phases 1–5, all done), `docs/KEYWORDS_PLAN.md`
@@ -20,7 +18,7 @@ Plans and decisions, in order: `docs/BUILD_PLAN.md` (original), `docs/AGENT_PLAN
 
 ## Running it
 
-- Conda env: `/srv/llm/miniforge3/envs/jobagent` (Python 3.12). Binaries: `$B=/srv/llm/miniforge3/envs/jobagent/bin`.
+- Conda env `jobagent` (Python 3.12), `$B=<env>/bin`. Docker Compose is the path for new installs (README.md).
   Not a venv; the owner uses miniforge. Project installed editable (`pip install -e .[dev]`).
 - Database: Docker container `jobagent-db` (pgvector/pg16, 127.0.0.1:5432), credentials in
   `.env` (`DATABASE_URL`). Migrations: `$B/alembic upgrade head`; `$B/alembic check` must say
@@ -30,7 +28,7 @@ Plans and decisions, in order: `docs/BUILD_PLAN.md` (original), `docs/AGENT_PLAN
   with `SECRET_KEY` in `.env`).
 - Web: `systemd/jobagent-ui.service` runs `jobagent ui --host 127.0.0.1 --port 8765
   --no-reload --proxy-headers`; Caddy (`deploy/Caddyfile`, installed at /etc/caddy/Caddyfile)
-  serves it as `https://10.0.0.100` / `https://llm` with its internal CA (`tls internal`),
+  serves it over HTTPS on the LAN with its internal CA (`tls internal`),
   HTTP redirects to HTTPS. **Python changes need `sudo systemctl restart jobagent-ui.service`**
   (static files and index.html are read from disk, so page-only changes need just a reload).
   The assistant has no sudo: give the owner the command.
@@ -80,7 +78,7 @@ JSONB), `resumes` (one active), `golden_chunks` (resume sections, embedded), `us
 ## Conventions the owner expects
 
 - Commits only when asked ("Commit the working tree changes with a sensible message").
-  No git identity configured: use `git -c user.name="ayman" -c user.email="ayjabri@gmail.com"`;
+  Use the owner's git identity;
   end messages with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
 - Plans before big changes: write them to `docs/` and wait for "Approve".
 - Keep NY/NJ: the owner cannot move. Director roles, banking and fintech.
@@ -117,4 +115,4 @@ JSONB), `resumes` (one active), `golden_chunks` (resume sections, embedded), `us
 - MCP server from the TOOLS registry; LLM concurrency for hosted providers.
 - 72 pending duplicate pairs (Greenhouse jobs without requisition IDs) await the owner.
 - Windows client: the owner was installing the Caddy root certificate
-  (`https://10.0.0.100/caddy-root.crt` after exporting it, see docs/HTTPS.md).
+  (`/caddy-root.crt` on the page after exporting it, see docs/HTTPS.md).

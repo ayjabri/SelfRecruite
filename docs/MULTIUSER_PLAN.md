@@ -13,7 +13,7 @@ about a person becomes per-user.
 | Area | Today | Problem for many users |
 |---|---|---|
 | Marks, favorites, applied, notes, fit score, match score, judgement | columns on `jobs` | one person's data on a shared row |
-| Resume | one file, `docs/Ethan_*.md`, chunks in `golden_chunks` | no owner |
+| Resume | one file, one markdown file in `docs/`, chunks in `golden_chunks` | no owner |
 | Preference model | `data/preference_model.joblib` | one model for everyone |
 | Targets, pre-filter keywords, allowed states, skills "have" | `config/*.yaml` | shared files; the Settings tab edits them for all |
 | Pre-filter | decides which postings get **parsed** at all, by title keywords | one user's keywords would hide jobs from others |

@@ -1,0 +1,11 @@
+# Use an Ollama that already runs on the host instead of the `ollama` service.
+# Remove `ollama` from COMPOSE_PROFILES in .env, then:
+#   docker compose -f docker-compose.yml -f docker-compose.host-ollama.yml up -d
+# On Linux, Ollama must listen on all interfaces (OLLAMA_HOST=0.0.0.0 in its service), or
+# set OLLAMA_BASE_URL here to the host's LAN address.
+services:
+  app:
+    environment:
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL_FROM_DOCKER:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

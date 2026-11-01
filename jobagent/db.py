@@ -7,7 +7,10 @@ from jobagent.config import get_settings
 
 
 def database_url() -> str:
-    return get_settings().database_url
+    url = get_settings().database_url
+    if not url:
+        raise RuntimeError("DATABASE_URL is not set: copy .env.example to .env and fill it in")
+    return url
 
 
 @lru_cache

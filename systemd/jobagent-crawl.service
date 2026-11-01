@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=ayman
-Group=ayman
-WorkingDirectory=/srv/jobagent
-ExecStart=/srv/llm/miniforge3/envs/jobagent/bin/jobagent pipeline "Daily pull: at most 200 new postings per target from every configured source, posted in the last 48 hours."
+User=__USER__
+Group=__USER__
+WorkingDirectory=__INSTALL_DIR__
+ExecStart=__BIN_DIR__/jobagent pipeline "Daily pull: at most 200 new postings per target from every configured source, posted in the last 48 hours."
 TimeoutStartSec=4h

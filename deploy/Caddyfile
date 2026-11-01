@@ -1,10 +1,11 @@
 # Reverse proxy in front of the jobagent web page.
-#   sudo cp /srv/jobagent/deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
 # The page itself listens on 127.0.0.1:8765 (systemd/jobagent-ui.service); Caddy owns ports 80/443.
 
 # LAN with HTTPS from Caddy's own local certificate authority. Browsers trust it once the root
 # certificate is installed on each device; see docs/HTTPS.md. Set COOKIE_SECURE=true in .env.
-https://llm, https://10.0.0.100, https://llm.local {
+# Replace the names with your server's hostname and LAN address.
+https://selfrecruite.lan, https://192.168.1.10 {
 	tls internal
 	encode gzip
 	request_body {

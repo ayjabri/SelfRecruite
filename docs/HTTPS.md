@@ -7,17 +7,17 @@ authority once. (Oct 6, 2026)
 ## Server, once
 
 ```bash
-sudo cp /srv/jobagent/deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
 ```
 
-Then set `COOKIE_SECURE=true` in `/srv/jobagent/.env` and restart the page so the session
+Then set `COOKIE_SECURE=true` in `.env` and restart the page so the session
 cookie is marked Secure:
 
 ```bash
 sudo systemctl restart jobagent-ui.service
 ```
 
-The page is then at `https://10.0.0.100/` and `https://llm/` (or `https://llm.local/` where
+The page is then at `https://<server address>/` (or `https://<hostname>.local/` where
 mDNS resolves it). Plain `http://` redirects there.
 
 ## Each device, once: trust the local authority
@@ -25,11 +25,11 @@ mDNS resolves it). Plain `http://` redirects there.
 Export the root certificate from the server:
 
 ```bash
-sudo cp /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt /srv/jobagent/data/caddy-root.crt && sudo chmod 644 /srv/jobagent/data/caddy-root.crt
+sudo cp /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt <install dir>/data/caddy-root.crt && sudo chmod 644 <install dir>/data/caddy-root.crt
 ```
 
 Once exported, every device can download it from the page itself at
-`https://10.0.0.100/caddy-root.crt` (click through the browser's warning once; the file is the
+`https://<server address>/caddy-root.crt` (click through the browser's warning once; the file is the
 public root, nothing secret). Or copy it with scp / AirDrop / a USB stick. Then install it:
 
 - **macOS:** double-click the file, add it to the *System* keychain, open it in Keychain

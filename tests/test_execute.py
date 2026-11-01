@@ -1,3 +1,4 @@
+import contextlib
 import logging
 
 from langgraph.checkpoint.memory import InMemorySaver
@@ -12,6 +13,7 @@ def test_execute_streams_progress_and_returns_final_state(monkeypatch, caplog):
     monkeypatch.setattr(graph_mod, "review_node", lambda s: {"review": {"proceed": True, "summary": "fine"}})
     monkeypatch.setattr(graph_mod, "make_agent_node", lambda spec: lambda s: {"reports": [{
         "agent": spec.name, "task": s.get("task", ""), "status": "ok", "summary": "", "tool_calls": [], "error": None}]})
+    monkeypatch.setattr(graph_mod, "session", lambda: contextlib.nullcontext(None))  # no database needed
     monkeypatch.setattr(graph_mod, "all_user_ids", lambda s: [1])  # one user, whatever the database holds
     g = graph_mod.build_graph().compile(checkpointer=InMemorySaver())
     with caplog.at_level(logging.INFO, logger="jobagent"):

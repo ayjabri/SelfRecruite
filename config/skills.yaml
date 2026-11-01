@@ -4,7 +4,7 @@
 #          plain text, not regex, except that "." and "+" are handled).
 # have:    skills you have that the resume text does not mention by these phrases.
 # not_have: skills the resume mentions but you would rather not claim.
-# Everything else in `have` is derived from docs/Ethan_Jabri_Golden_Source_Resume.md.
+# Everything else in `have` is derived from your active resume.
 
 skills:
   # languages

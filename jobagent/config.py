@@ -32,14 +32,14 @@ class Settings:
 @lru_cache
 def get_settings() -> Settings:
     return Settings(
-        database_url=os.environ["DATABASE_URL"],
+        database_url=os.environ.get("DATABASE_URL", ""),  # checked when the database is first used
         llm_model=os.environ.get("LLM_MODEL", "ollama:qwen3.6:27b"),
         ollama_base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
         ollama_num_ctx=int(os.environ.get("OLLAMA_NUM_CTX", "16384")),
         companies_file=Path(os.environ.get("COMPANIES_FILE", ROOT / "config" / "companies.yaml")),
         filters_file=Path(os.environ.get("FILTERS_FILE", ROOT / "config" / "filters.yaml")),
-        golden_source_file=Path(os.environ.get(
-            "GOLDEN_SOURCE_FILE", ROOT / "docs" / "Ethan_Jabri_Golden_Source_Resume.md")),
+        # optional: a markdown resume imported as user 1's first resume on the first run
+        golden_source_file=Path(os.environ.get("GOLDEN_SOURCE_FILE", ROOT / "data" / "resume.md")),
         targets_file=Path(os.environ.get("TARGETS_FILE", ROOT / "config" / "targets.yaml")),
         embed_model=os.environ.get("EMBED_MODEL", "nomic-embed-text"),
     )

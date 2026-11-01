@@ -5,7 +5,7 @@
 
 title:
   # a posting is kept only if its title contains at least one of these...
-  # (grouped by the Executive Profile variants in the golden-source resume)
+  # (grouped by resume variant; edit the lists and allowed_states for your own search)
   include:
     # Variant A — Product / Project Management & Business Analysis
     - product manager

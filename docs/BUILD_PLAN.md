@@ -1,6 +1,6 @@
 # Daily Job-Match Agent — Build Plan
 
-Sep 30, 2026 · @Ethan
+Sep 30, 2026
 
 ## Goal and design principles
 
@@ -161,7 +161,7 @@ The score is built bottom-up from each requirement, using the same percentage an
 
 **How a job is scored.**
 
-1. **Chunk the golden source once.** Split `Ethan_Jabri_Golden_Source_Resume.md` by heading into role and project sections, embed each with `nomic-embed-text`, and store them in a `golden_chunks` table keyed by the file's SHA. The OPEN ITEMS and FUTURE TAILORING INSTRUCTIONS sections are always included in full, never retrieved.
+1. **Chunk the golden source once.** Split `Golden_Source_Resume.md` by heading into role and project sections, embed each with `nomic-embed-text`, and store them in a `golden_chunks` table keyed by the file's SHA. The OPEN ITEMS and FUTURE TAILORING INSTRUCTIONS sections are always included in full, never retrieved.
 2. **Retrieve evidence per requirement.** For each required qualification, preferred qualification and responsibility, pull the top 4 golden-source chunks by cosine similarity.
 3. **Judge each requirement with Ollama.** Structured output per requirement: `class` (Covered, Augmentable, Reframe, Gap), `pct` 0–100, `evidence` (the golden-source section name and a quoted line), and `missing` (one line). The prompt carries the anchors verbatim: 90–100 same work at the same scope; 70–89 same work, narrower scope or different domain; 40–69 related but a real part missing; 10–39 adjacent only. Score meaning over wording.
 4. **Roll up in plain Python**, not in the LLM, so the arithmetic is auditable:
@@ -233,8 +233,8 @@ Each tailored job gets its own folder named `{Company}_{JobID}`, with files insi
 /srv/jobagent/resumes/
   2026-10-01/
     Stripe_4412087/
-      Ethan_Jabri_Resume_Stripe_4412087.docx   <- the deliverable
-      Ethan_Jabri_Resume_Stripe_4412087.md     <- canonical markdown, easy to edit
+      Resume_Stripe_4412087.docx   <- the deliverable
+      Resume_Stripe_4412087.md     <- canonical markdown, easy to edit
       tailoring_report.md                      <- changes, gaps, claims to back up
       job.json                                 <- the extract it was built from
       match_details.json
@@ -292,7 +292,7 @@ jobagent/
     result_schema.json
     key.txt               # git-ignored
     .claude/skills/resume-tailor-auto/
-  data/golden_source/Ethan_Jabri_Golden_Source_Resume.md
+  data/golden_source/Golden_Source_Resume.md
   tests/
   docker-compose.yml      # postgres + pgvector
 ```

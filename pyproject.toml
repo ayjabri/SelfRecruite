@@ -1,8 +1,11 @@
 [project]
 name = "jobagent"
 version = "0.1.0"
-description = "Daily job-match agent: LangGraph agents over a registry of plain tools"
+description = "SelfRecruite: a self-hosted job-search agent that crawls career sites, scores postings against your resume and learns from your marks"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
+keywords = ["job-search", "langgraph", "langchain", "ollama", "pgvector", "fastapi", "recruiting"]
 dependencies = [
     "sqlalchemy>=2",
     "alembic",
@@ -34,10 +37,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-    "py-mini-racer",
-    "playwright","pytest"]
-anthropic = ["langchain-anthropic"]
+dev = ["pytest", "py-mini-racer", "playwright"]
+
+[project.urls]
+Homepage = "https://github.com/ayjabri/SelfRecruite"
+Repository = "https://github.com/ayjabri/SelfRecruite"
+Issues = "https://github.com/ayjabri/SelfRecruite/issues"
 
 [project.scripts]
 jobagent = "jobagent.cli:main"
@@ -50,7 +55,7 @@ build-backend = "setuptools.build_meta"
 include = ["jobagent*"]
 
 [tool.setuptools.package-data]
-jobagent = ["web/*.html", "web/static/*"]
+jobagent = ["web/*.html", "web/*.png", "web/static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

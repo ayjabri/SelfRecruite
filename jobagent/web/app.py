@@ -310,7 +310,7 @@ def skills_overview():
             "have": profile.get("have") or [], "not_have": profile.get("not_have") or []}
 
 
-LOGO_SOURCE = ROOT / "docs" / "phoenix1.png"
+LOGO_SOURCE = Path(__file__).with_name("logo.png")
 
 
 @lru_cache
@@ -335,7 +335,7 @@ def _logo_bytes() -> bytes:
 @app.get("/logo.png")
 def logo():
     if not LOGO_SOURCE.exists():
-        raise HTTPException(404, "docs/phoenix1.png not found")
+        raise HTTPException(404, "logo.png not found")
     return Response(_logo_bytes(), media_type="image/png")
 
 
