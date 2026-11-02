@@ -17,6 +17,14 @@
 
 ---
 
+## Why this exists
+
+Job hunting has a funny way of becoming a full-time job that does not pay. You open twelve tabs, scroll past "Senior Junior Associate Lead II", read a posting that wants fifteen years of experience in a framework that is four years old, and somewhere around the third "we're like a family here" you forget what you were looking for in the first place.
+
+SelfRecruite does the scrolling for you. It pulls postings straight from the companies' own career sites, holds each one up against your actual resume, and scores how well they match. Mark a few jobs as interesting or not, and it starts to learn your taste, so the good ones float to the top and the "family" ones sink quietly to the bottom. Everything runs on your own machine, your resume never has to leave it, and it is free to use and change.
+
+The goal is not to apply to more jobs. It is to apply to the right ones, with your evenings back.
+
 ## What it does
 
 - **Crawls** Greenhouse, Workday and Oracle Recruiting career sites for the companies in your list. No scraping of job boards, no third-party API keys: these are the sites' own public endpoints.
